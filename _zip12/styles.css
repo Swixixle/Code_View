@@ -1,0 +1,80 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* Custom CSS for Code View */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&display=swap');
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: 'JetBrains Mono', 'Monaco', 'Consolas', monospace;
+}
+
+/* Custom scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.8);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.8);
+}
+
+/* Animations for live updates */
+@keyframes pulse-green {
+  0%, 100% {
+    background-color: rgb(34, 197, 94);
+    opacity: 1;
+  }
+  50% {
+    background-color: rgb(34, 197, 94);
+    opacity: 0.6;
+  }
+}
+
+.animate-pulse-green {
+  animation: pulse-green 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Evidence card hover effects */
+.evidence-card {
+  transition: all 0.2s ease-in-out;
+  border: 1px solid rgba(71, 85, 105, 0.5);
+}
+
+.evidence-card:hover {
+  border-color: rgba(6, 182, 212, 0.5);
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.1);
+  transform: translateY(-1px);
+}
+
+/* Analysis card selection */
+.analysis-card {
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+}
+
+.analysis-card:hover {
+  transform: translateX(4px);
+}
+
+.analysis-card.selected {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(59, 130, 246, 0.1));
+  border-color: rgba(6, 182, 212, 0.5);
+}
