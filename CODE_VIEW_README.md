@@ -17,6 +17,7 @@ Code View examines software with source-level evidence: Python AST parsing, docu
 - **Ingests code** from git, local paths, zip upload or URL, and (optionally) Render/Netlify-linked git URLs via their APIs
 - **Persists** analyses and archaeology to **SQLite** (`data/code_view.db` under the repo root)
 - **Educational dossiers** as Markdown downloads
+- **Civic accountability scan (heuristic)** — optional `CivicAuditAnalyzer` over a **local** checkout: Open Case–style **pattern names**, crypto/signing keywords, temporal keyword density, coarse scorecard; **not** a penetration test or institutional certification
 - **Monitoring hooks** (polling GitHub for new commits when configured) with WebSocket notifications; not a full live IDE integration
 
 ---
@@ -61,6 +62,7 @@ Dev server defaults to **port 3000** with `/api` and `/ws` proxied to the backen
 Backend (FastAPI)
 ├── Evidence pipeline     # Python AST + doc claims + refinement + mechanisms/contradictions
 ├── Archaeology           # Entity extraction, SQLite graph, resolve/identify/trace/interpret/project
+├── Civic audit (heuristic)  # analysis/civic_audit — pattern names, signing/temporal keyword passes, scorecard
 ├── Universal ingestion     # clone, local dir, zip upload/URL, optional Render/Netlify → git URL
 ├── Persistence             # SQLite (SQLAlchemy async)
 ├── Dossiers                # Markdown generation from stored or fresh analysis
@@ -134,6 +136,19 @@ curl "http://localhost:8000/api/analysis/entity/ENTITY_ID/project"
 - **interpret** uses git history when **`repo_path`** points at a local checkout; otherwise it reports explicit gaps.
 - **project** uses **static** reverse edges only; confidence is conservative.
 
+### Civic accountability analysis (heuristic)
+
+The **`CivicAuditAnalyzer`** (`backend/analysis/civic_audit/`) is a separate pass on a **directory tree** (typically a git clone of a civic/accountability codebase). It:
+
+- Looks for **named rule hooks** (e.g. Open Case–style `*_V1` identifiers in function names) in likely “pattern/engine” files
+- Flags **signing / verification**-related files (keyword scan), **temporal** keyword density, and **data integrity** mentions
+- Emits **findings** with optional `attack_vector` text (conceptual, for review)
+- Produces **composite scores** (0–1) that are **rough coverage/penalty blends** — always read alongside the methodology note in the API response
+
+**API:** `POST /api/analysis/civic-audit` (JSON body includes `directory_path`; optional `include_scorecard` → `scorecard_markdown`).  
+**CLI:** `backend/civic_audit_cli.py` writes a Markdown file next to the repo parent.  
+Details: `backend/analysis/civic_audit/civic_audit_install.md`.
+
 ---
 
 ## Evidence search and dossiers
@@ -141,16 +156,6 @@ curl "http://localhost:8000/api/analysis/entity/ENTITY_ID/project"
 ```bash
 curl "http://localhost:8000/api/analysis/evidence/search?query=ed25519&limit=10"
 ```
-
-**Civic heuristic audit** (Open Case–style pattern **names**, keyword/AST triage — not a pen test):
-
-```bash
-curl -s -X POST http://localhost:8000/api/analysis/civic-audit \
-  -H "Content-Type: application/json" \
-  -d '{"directory_path": "/absolute/path/to/repo", "include_scorecard": true}'
-```
-
-See `backend/analysis/civic_audit/civic_audit_install.md` for CLI (`civic_audit_cli.py`).
 
 **Dossier** (Markdown download):
 
@@ -215,6 +220,8 @@ NETLIFY_AUTH_TOKEN=...
 
 **Archaeology:** `POST /api/analysis/resolve`, `GET /api/analysis/entity/{entity_id}/{identify,trace,interpret,project}`  
 
+**Civic audit (heuristic):** `POST /api/analysis/civic-audit` — local `directory_path`; see **Civic accountability analysis** above.
+
 **Dossier:** `POST /api/dossier/analyze-with-dossier`, `POST /api/dossier/comparative-dossier`, `GET /api/dossier/report/{analysis_id}`  
 
 **Monitoring:** `POST|GET /api/analysis/monitoring/repository`  
@@ -227,12 +234,20 @@ Full detail: **`/docs`** (Swagger).
 
 ---
 
+## Use cases (illustrative)
+
+- **Developers:** Trace entities and static edges; run civic heuristics for triage before deeper review.
+- **Reviewers / institutions:** Use evidence trails and dossiers as **inputs** to process—confirm outcomes in primary sources and domain experts.
+- **Journalists / investigators:** Combine search, archaeology, and civic-audit scorecards as **story leads**, not sole proof of misconduct or robustness.
+
+---
+
 ## Project layout (verified)
 
 ```
 Code_View/
 ├── backend/
-│   ├── analysis/          # engine, parsers, refinement, archaeology/, ingestion/
+│   ├── analysis/          # engine, parsers, refinement, archaeology/, ingestion/, civic_audit/
 │   ├── api/               # routes, dossier, monitoring, websocket
 │   ├── models/, persistence/
 │   ├── main.py
@@ -249,7 +264,7 @@ Code_View/
 
 ## Limitations
 
-- **Heuristic and static:** crypto claims, contradictions, call graph, and impact projection are **not** runtime-complete.
+- **Heuristic and static:** crypto claims, contradictions, call graph, impact projection, and **civic audit** scores are **not** runtime-complete or externally validated.
 - **Python-first** for deep AST and entity extraction; other languages may appear in file counts but are not fully modeled.
 - **Hosting APIs** (Render/Netlify) resolve **git** links, not arbitrary “live server filesystems.”
 - **No claim of institutional scoring** as an objective metric—reports are for review.

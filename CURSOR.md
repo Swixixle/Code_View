@@ -51,6 +51,7 @@ backend/
 ├── analysis/
 │   ├── evidence.py        # AnalysisEngine — main pipeline orchestration
 │   ├── archaeology/       # entity extraction, graph, resolver, store, history
+│   ├── civic_audit/       # CivicAuditAnalyzer, scorecard, register_civic_audit_routes
 │   ├── ingestion/        # materialize (zip/git), pipeline, platforms (Render/Netlify)
 │   ├── parsers/          # python_parser*.py
 │   └── refinement/        # dedup, classifiers, refinement entry
@@ -59,6 +60,7 @@ backend/
 │   └── db_models.py       # SQLAlchemy: AnalysisRecord, EvidenceRecord, CodeEntityRecord, …
 ├── persistence/
 │   └── service.py         # store/get analysis
+├── civic_audit_cli.py     # heuristic civic audit → Markdown next to parent dir
 └── tests/
     └── test_archaeology.py
 ```
@@ -109,6 +111,19 @@ stats = await ingest_repository(
     commit_sha="40-char-git-sha",
 )
 ```
+
+### Civic heuristic audit (local tree)
+
+```python
+from pathlib import Path
+from analysis.civic_audit.analyzer import CivicAuditAnalyzer
+
+analyzer = CivicAuditAnalyzer()
+result = await analyzer.analyze_civic_accountability(Path("/abs/path/to/repo"))
+# result.findings, result.overall_civic_score — heuristic only; see methodology finding
+```
+
+HTTP: `POST /api/analysis/civic-audit` is registered in `api/routes.py` via `register_civic_audit_routes(analysis_router)` in `analysis/civic_audit/endpoints.py`.
 
 ### Database init (tests or scripts)
 
@@ -184,11 +199,15 @@ Focused: `pytest tests/test_archaeology.py`.
 **Archaeology:**  
 `analysis/archaeology/extractor.py`, `graph_builder.py`, `store.py`, `resolver.py`.
 
+**Civic audit heuristics:**  
+Edit `PATTERN_RULES`, keyword lists, or scoring in `analysis/civic_audit/analyzer.py`; adjust Markdown in `scorecard.py`; API body/response models in `endpoints.py`. Test with `python civic_audit_cli.py /path/to/repo` from `backend/`.
+
 ---
 
 ## What not to assume
 
 - **Crypto / “trust” language** in output is **heuristic** (patterns + doc text), not a formal audit.  
+- **Civic audit** scores are **not** third-party certification or corruption “proof”—triage signals only.  
 - **Self-analysis metrics** (counts, timing) vary by tree and README text; see **`docs/code_view_self_analysis.md`** for how to read a run.  
 - **Platform ingest** (Render/Netlify) resolves **linked git URLs** via API keys, not live server filesystems.
 
