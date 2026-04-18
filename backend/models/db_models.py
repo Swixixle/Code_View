@@ -163,3 +163,47 @@ class RepositoryMonitorRecord(Base):
     monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CodeEntityRecord(Base):
+    """Indexed Python (etc.) symbols for archaeology queries."""
+
+    __tablename__ = "code_entities"
+
+    entity_id: Mapped[str] = mapped_column(String, primary_key=True)
+    repo_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    commit_sha: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    language: Mapped[str] = mapped_column(String, nullable=False, default="python")
+    entity_kind: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    symbol_name: Mapped[str] = mapped_column(String, nullable=False)
+    qualified_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    file_path: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    start_line: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_line: Mapped[int] = mapped_column(Integer, nullable=False)
+    parent_entity_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    signature_hash: Mapped[str] = mapped_column(String, nullable=False)
+    structural_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    created_at_analysis: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    last_seen_commit: Mapped[str] = mapped_column(String, nullable=False)
+    analysis_confidence: Mapped[str] = mapped_column(String, nullable=False, default="high")
+    raw_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    normalized_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    docstring: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class EntityRelationRecord(Base):
+    """Edges between entities (contains, calls, imports, ancestry hints)."""
+
+    __tablename__ = "entity_relations"
+
+    relation_id: Mapped[str] = mapped_column(String, primary_key=True)
+    repo_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    commit_sha: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    source_entity_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    target_entity_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    relation_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    confidence: Mapped[str] = mapped_column(String, nullable=False, default="medium")
+    evidence_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    discovered_at_commit: Mapped[str] = mapped_column(String, nullable=False)
+    created_at_analysis: Mapped[datetime] = mapped_column(DateTime, nullable=False)
