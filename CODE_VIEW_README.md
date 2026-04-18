@@ -1,326 +1,255 @@
 # Code View
 
-**Evidence-backed code dissection with cryptographic verification**
+**Evidence-backed code dissection and Python-first static archaeology**
 
-Code View is a forensic analysis platform that systematically examines software systems to reveal how they actually work versus how they present themselves. Built for civic accountability platforms, it provides evidence trails suitable for institutional review and adversarial scrutiny.
+Code View examines software with source-level evidence: Python AST parsing, documentation claims, heuristic crypto/security language, and an optional **entity index** (functions, classes, routes, imports, static call edges). It is useful for review and exploration; outputs are **signals for human verification**, not automated verdicts on trustworthiness.
+
+**Developers / Cursor:** see **[CURSOR.md](./CURSOR.md)** for import layout, entry points, API tables, and extension notes.
 
 ---
 
-## 🎯 What Code View Does
+## What Code View Does
 
-Code View transforms software analysis from subjective assessment to **evidence-backed forensic examination**:
+- **Extracts evidence** from Python source (AST) with file/line provenance
+- **Surfaces documentation claims** and compares them heuristically to observed code (contradictions are **pattern-based**, not formal proofs)
+- **Refines evidence** (deduplication, pattern labels, optional tone/review metadata) for defensible summaries
+- **Indexes entities** (module/class/function/method/route when derivable) with **resolve / identify / trace / interpret / project** APIs
+- **Ingests code** from git, local paths, zip upload or URL, and (optionally) Render/Netlify-linked git URLs via their APIs
+- **Persists** analyses and archaeology to **SQLite** (`data/code_view.db` under the repo root)
+- **Educational dossiers** as Markdown downloads
+- **Monitoring hooks** (polling GitHub for new commits when configured) with WebSocket notifications; not a full live IDE integration
 
-- **Extracts real evidence** from source code using Python AST parsing
-- **Detects cryptographic infrastructure** (Ed25519, SHA-256, verification systems)
-- **Maps claims vs implementation** to identify documentation gaps
-- **Generates comprehensive dossiers** with institutional credibility assessment
-- **Provides live monitoring** with real-time analysis updates
+---
 
-## 🏛️ Built for Institutional Credibility
-
-Code View was designed to analyze civic accountability platforms where **"receipts, not verdicts"** matters:
-
-- **Evidence trails** with exact source code references
-- **Cryptographic verification** detection for trust boundaries
-- **Educational documentation** explaining how systems actually work
-- **Comparative analysis** across multiple platforms
-- **Professional reporting** suitable for journalists and external review
-
-## 🔬 Forensic Analysis Features
-
-### Evidence Extraction
-- **Python AST parsing** for functions, classes, routes, and imports
-- **Cryptographic pattern detection** for signing, verification, and hashing
-- **Documentation analysis** extracting capability claims
-- **Trust boundary mapping** identifying verification checkpoints
-
-### Evidence Refinement (defensible headline numbers)
-- **Deduplication** of overlapping findings (exact, semantic, and repeated pattern spikes)
-- **Pattern vs implementation labeling** (`refinement_signal` on each evidence item)
-- **Tone calibration** and **human-review priorities** stored with the analysis
-- Persisted on `GET /api/analysis/{id}/summary` as **`refinement`** when available
-
-### Live Monitoring
-- **Real-time repository monitoring** with change detection
-- **WebSocket live feed** for analysis progress updates
-- **Automatic re-analysis** on code changes
-- **Regression detection** when evidence quality degrades
-
-### Educational Dossiers
-- **Comprehensive forensic reports** with methodology explanation
-- **Architecture education** through pattern recognition
-- **Trust assessment** with institutional credibility scoring
-- **Comparative analysis** across multiple platforms
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- Git
 
-### Backend Setup
+- **Python** 3.11+ (recent versions tested; use a venv)
+- **Node.js** 18+ (for the bundled frontend)
+- **Git** (for cloning remotes and archaeology metadata)
+
+### Backend
+
 ```bash
-# Clone the repository
 git clone https://github.com/Swixixle/Code_View.git
 cd Code_View/backend
 
-# Create virtual environment
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
-# Start the backend
-.venv/bin/uvicorn main:app --reload --port 8000
+.venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Frontend Setup
+API base: `http://localhost:8000` — OpenAPI docs at `/docs`.
+
+### Frontend
+
 ```bash
-# In a new terminal
-cd frontend
-
-# Install dependencies
+cd ../frontend
 npm install
-
-# Start development server
 npm run dev
 ```
 
-**Access the platform at http://localhost:3000**
-
-## 📊 Platform Architecture
-
-```
-Code View Platform
-├── Backend (FastAPI)
-│   ├── Evidence Extraction      # Python AST + crypto detection
-│   ├── Evidence Refinement      # Dedup, pattern vs implementation, review hints
-│   ├── Persistence Layer      # SQLite with full relationships
-│   ├── Live Monitoring        # WebSocket + repository watching
-│   ├── Educational Dossiers   # Comprehensive report generation
-│   └── REST API               # Analysis, evidence, monitoring endpoints
-├── Frontend (React + Vite)
-│   ├── Forensic Dashboard     # Dark theme evidence visualization
-│   ├── Live Updates           # WebSocket integration
-│   ├── Evidence Search        # Real-time filtering and exploration
-│   └── Dossier Generation     # One-click report download
-└── Analysis Pipeline
-    ├── File Classification    # Language detection and categorization
-    ├── Python Parsing         # AST extraction with source locations
-    ├── Claims Extraction      # Documentation capability analysis
-    ├── Evidence Refinement    # Dedup + labeling + tone/review metadata
-    ├── Mechanism Mapping      # Implementation pattern detection
-    ├── Contradiction Detection # Claims vs reality comparison
-    └── Evidence Assembly      # Comprehensive finding compilation
-```
-
-## 🔍 Usage Examples
-
-### Analyze a Repository
-```bash
-# REST API
-curl -X POST http://localhost:8000/api/analysis/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"source": "https://github.com/your/repository", "persist": true}'
-
-# Response includes evidence count, claims, contradictions, and mechanisms
-```
-
-### Search Evidence
-```bash
-# Find cryptographic implementations
-curl "http://localhost:8000/api/analysis/evidence/search?query=ed25519&limit=10"
-
-# Search for specific patterns
-curl "http://localhost:8000/api/analysis/evidence/search?query=pattern&limit=10"
-```
-
-### Generate Educational Dossier
-```bash
-# Comprehensive forensic report
-curl -X POST http://localhost:8000/api/dossier/analyze-with-dossier \
-  -H "Content-Type: application/json" \
-  -d '{"source": "https://github.com/your/repository"}' \
-  -o forensic_dossier.md
-```
-
-### Compare Multiple Platforms
-```bash
-# Comparative analysis across repositories
-curl -X POST http://localhost:8000/api/dossier/comparative-dossier \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repositories": [
-      "https://github.com/platform/one",
-      "https://github.com/platform/two"
-    ]
-  }' \
-  -o comparative_analysis.md
-```
-
-## 🎓 Educational Value
-
-Code View serves as both an analysis tool and educational platform:
-
-### For Developers
-- **Learn architecture patterns** from real civic technology systems
-- **Understand cryptographic verification** through working examples
-- **See evidence-first design** principles in practice
-
-### For Institutions
-- **Assess software credibility** with evidence-backed analysis
-- **Verify claimed capabilities** against actual implementation
-- **Understand trust boundaries** and verification mechanisms
-
-### For Journalists
-- **Investigate accountability platforms** with forensic rigor
-- **Verify transparency claims** with evidence trails
-- **Generate professional reports** for institutional review
-
-## 🔐 Cryptographic Detection
-
-Code View specifically detects:
-
-- **Ed25519 digital signatures** for evidence verification
-- **SHA-256 hashing** for data integrity
-- **JCS canonicalization** for deterministic signing
-- **Verification functions** for third-party validation
-- **Trust boundaries** where assumptions begin
-- **Receipt systems** for institutional accountability
-
-## 🏗️ Development
-
-### Project Structure
-```
-Code_View/
-├── backend/
-│   ├── analysis/                 # Evidence extraction and parsing
-│   │   └── refinement/         # Dedup, classification, tone, human-review bundle
-│   ├── api/                    # REST endpoints and WebSocket
-│   ├── models/                 # Data models and ORM
-│   ├── persistence/            # Database operations
-│   └── main.py                 # FastAPI application
-├── frontend/
-│   ├── src/
-│   │   ├── CodeViewDashboard.jsx  # Main interface
-│   │   └── App.jsx                # React app
-│   ├── package.json            # Dependencies
-│   └── vite.config.js          # Development configuration
-└── CODE_VIEW_SPEC.md, CODE_VIEW_STRUCTURE.md   # Documentation at repo root
-```
-
-### Adding New Parsers
-1. Create parser in `backend/analysis/parsers/`
-2. Extend `AnalysisEngine` to use new parser
-3. Add language detection to file classification
-4. Update evidence models if needed
-
-### Contributing
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request with clear description
-
-## 📈 Performance
-
-**Analysis Speed:**
-- Small repositories (< 100 files): ~1-2 seconds
-- Medium repositories (< 500 files): ~5-10 seconds  
-- Large repositories (1000+ files): ~15-30 seconds
-
-**Evidence Accuracy:**
-- High confidence: 70-80% of findings (direct source extraction)
-- Medium confidence: 15-20% of findings (pattern matching)
-- Low confidence: 5-10% of findings (requires manual verification)
-
-## 🔧 Configuration
-
-### Backend Configuration
-Environment variables in `backend/.env`:
-```env
-DATABASE_URL=sqlite:///data/code_view.db
-WEBSOCKET_ORIGINS=http://localhost:3000
-LOG_LEVEL=info
-```
-
-### Frontend Configuration  
-Vite proxy in `frontend/vite.config.js`:
-```javascript
-server: {
-  proxy: {
-    '/api': 'http://127.0.0.1:8000',
-    '/ws': { target: 'ws://127.0.0.1:8000', ws: true }
-  }
-}
-```
-
-## 📋 API Reference
-
-### Analysis Endpoints
-- `POST /api/analysis/analyze` - Analyze repository
-- `GET /api/analysis/analyses` - List recent analyses
-- `GET /api/analysis/{id}/summary` - Get analysis summary (includes optional **`refinement`** metadata)
-- `GET /api/analysis/evidence/{id}` - Get specific evidence
-- `GET /api/analysis/evidence/search` - Search evidence
-
-### Dossier Endpoints
-- `POST /api/dossier/analyze-with-dossier` - Analyze + generate report
-- `GET /api/dossier/report/{id}` - Download stored dossier
-- `POST /api/dossier/comparative-dossier` - Multi-platform comparison
-
-### Monitoring Endpoints
-- `POST /api/analysis/monitoring/repository` - Enable monitoring
-- `GET /api/analysis/monitoring/repository` - Check monitoring status
-- `WebSocket /ws/live-feed` - Real-time updates
-
-## 🎯 Use Cases
-
-### Civic Technology Assessment
-Analyze accountability platforms for:
-- Cryptographic verification implementation
-- Evidence trail completeness
-- Documentation accuracy
-- Trust boundary identification
-
-### Software Credibility Review
-Evaluate systems for:
-- Claims vs implementation alignment
-- Security mechanism detection
-- Architecture pattern analysis
-- Institutional suitability assessment
-
-### Educational Analysis
-Learn from real systems:
-- Evidence-first design patterns
-- Cryptographic verification systems
-- Civic technology architecture
-- Trust and transparency mechanisms
-
-## 🚨 Limitations
-
-- **Heuristic detection:** Cryptographic and contradiction detection uses pattern matching - signals for review, not definitive verdicts
-- **Python focus:** Enhanced parsing currently limited to Python (JavaScript/TypeScript support planned)
-- **Documentation dependent:** Claims extraction quality depends on documentation completeness
-- **Manual verification recommended:** High-stakes decisions should include expert code review
-
-## 🤝 Community
-
-Code View was built for the civic accountability community:
-
-- **Open source** for transparency and verification
-- **Evidence-first approach** for institutional credibility  
-- **Educational focus** for knowledge sharing
-- **Professional standards** for external review
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-Built with the civic accountability community's need for transparent, verifiable software analysis that can withstand adversarial scrutiny while providing educational value about evidence-first system design.
+Dev server defaults to **port 3000** with `/api` and `/ws` proxied to the backend (`frontend/vite.config.js`). Open **http://localhost:3000**.
 
 ---
 
-**Code View: Forensic analysis for software that matters.**
+## Architecture (concise)
 
-*"Show me the evidence, not the claims."*
+```
+Backend (FastAPI)
+├── Evidence pipeline     # Python AST + doc claims + refinement + mechanisms/contradictions
+├── Archaeology           # Entity extraction, SQLite graph, resolve/identify/trace/interpret/project
+├── Universal ingestion     # clone, local dir, zip upload/URL, optional Render/Netlify → git URL
+├── Persistence             # SQLite (SQLAlchemy async)
+├── Dossiers                # Markdown generation from stored or fresh analysis
+├── Monitoring / WebSocket  # optional GitHub HEAD polling + /ws/live-feed
+└── REST + WS               # /api/analysis/*, /api/dossier/*, /api/monitoring/*, …
+
+Frontend (React + Vite, under frontend/src/)
+└── Dashboard UI (scaffold; wire to API as needed)
+```
+
+`main.py` enables CORS for `http://localhost:3000` by default.
+
+---
+
+## Universal ingestion
+
+Check which platform APIs are available (no secrets returned):
+
+```bash
+curl "http://localhost:8000/api/analysis/ingest/capabilities"
+```
+
+| Endpoint | Body / form | Notes |
+|----------|-------------|--------|
+| `POST /api/analysis/ingest/archive` | multipart: `file`, optional `persist`, `run_archaeology`, etc. | `.zip` extracted with path traversal checks |
+| `POST /api/analysis/ingest/zip-url` | JSON: `url`, plus `persist`, `run_archaeology`, … | HTTPS zip download |
+| `POST /api/analysis/ingest/git` | JSON: `repo_url`, … | Shallow clone |
+| `POST /api/analysis/ingest/local` | JSON: `directory_path`, … | Must be a directory on disk |
+| `POST /api/analysis/ingest/render` | JSON: `service_id`, … | Requires `RENDER_API_KEY`; uses Render API to find linked **git** URL, then clones |
+| `POST /api/analysis/ingest/netlify` | JSON: `site_id`, … | Requires `NETLIFY_AUTH_TOKEN`; uses Netlify API for linked **repo_url**, then clones |
+| `POST /api/analysis/ingest/replit` | JSON: `git_url` and/or `zip_url`, … | No Replit session API; you supply export zip or git remote |
+
+Legacy single entrypoint (still supported):
+
+```bash
+curl -X POST http://localhost:8000/api/analysis/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"source": "https://github.com/org/repo", "persist": true, "run_archaeology": true}'
+```
+
+Analyze responses include **`repo_id`** and **`archaeology`** counts when indexing succeeded.
+
+---
+
+## Archaeology (entity-level)
+
+After a successful indexed run, use **`repo_id`** and **`commit_sha`** from the analysis response (or entity records).
+
+**Resolve** line → entity (JSON uses **`commit_sha`**, not `commit_hash`):
+
+```bash
+curl -X POST http://localhost:8000/api/analysis/resolve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_id": "<repo_id from analyze>",
+    "commit_sha": "<40-char commit>",
+    "file_path": "backend/main.py",
+    "line": 46
+  }'
+```
+
+**Taps** (replace `ENTITY_ID`):
+
+```bash
+curl "http://localhost:8000/api/analysis/entity/ENTITY_ID/identify"
+curl "http://localhost:8000/api/analysis/entity/ENTITY_ID/trace"
+curl "http://localhost:8000/api/analysis/entity/ENTITY_ID/interpret?repo_path=/abs/path/to/repo"
+curl "http://localhost:8000/api/analysis/entity/ENTITY_ID/project"
+```
+
+- **interpret** uses git history when **`repo_path`** points at a local checkout; otherwise it reports explicit gaps.
+- **project** uses **static** reverse edges only; confidence is conservative.
+
+---
+
+## Evidence search and dossiers
+
+```bash
+curl "http://localhost:8000/api/analysis/evidence/search?query=ed25519&limit=10"
+```
+
+**Dossier** (Markdown download):
+
+```bash
+curl -X POST http://localhost:8000/api/dossier/analyze-with-dossier \
+  -H "Content-Type: application/json" \
+  -d '{"source": "https://github.com/your/repository", "persist": true}' \
+  -o forensic_dossier.md
+```
+
+**Comparative** (2–5 HTTPS git URLs only):
+
+```bash
+curl -X POST http://localhost:8000/api/dossier/comparative-dossier \
+  -H "Content-Type: application/json" \
+  -d '{"repositories": ["https://github.com/a/one", "https://github.com/b/two"]}' \
+  -o comparative.md
+```
+
+**Stored** analysis dossier:
+
+```bash
+curl "http://localhost:8000/api/dossier/report/ANALYSIS_ID" -o stored.md
+```
+
+---
+
+## Cryptography and security language
+
+The pipeline looks for **common patterns and wording** in code and docs (e.g. signing, hashing, Ed25519, SHA-256). It does **not** perform deep cryptographic audits or protocol verification. Treat findings as **leads**, not certifications. Any mention of specific schemes (e.g. JCS) in reports usually comes from **observed text in the repository**, not a dedicated JCS verifier in Code View.
+
+---
+
+## Evidence refinement (existing analyses)
+
+- Deduplication and labeling to reduce inflated counts
+- Optional **`refinement`** metadata on summaries where the refinement stage ran
+- See **`GET /api/analysis/{id}/summary`**
+
+---
+
+## Configuration
+
+**Database:** SQLite at **`Code_View/data/code_view.db`** (created on startup). The code uses a fixed `DATABASE_URL` in `backend/database.py`; changing DB location means editing that module or extending config (there is no separate `.env`-driven DB URL in-tree today).
+
+**Platform APIs (optional):**
+
+```env
+RENDER_API_KEY=...
+NETLIFY_AUTH_TOKEN=...
+```
+
+**CORS:** Defaults include `http://localhost:3000` in `main.py`.
+
+---
+
+## API reference (high level)
+
+**Ingestion:** `GET /api/analysis/ingest/capabilities`, `POST …/ingest/{archive,zip-url,git,local,render,netlify,replit}`  
+
+**Analysis:** `POST /api/analysis/analyze`, `GET /api/analysis/analyses`, `GET /api/analysis/{analysis_id}`, `GET /api/analysis/{analysis_id}/summary`, `GET /api/analysis/evidence/search`, `GET /api/analysis/evidence/{evidence_id}`  
+
+**Archaeology:** `POST /api/analysis/resolve`, `GET /api/analysis/entity/{entity_id}/{identify,trace,interpret,project}`  
+
+**Dossier:** `POST /api/dossier/analyze-with-dossier`, `POST /api/dossier/comparative-dossier`, `GET /api/dossier/report/{analysis_id}`  
+
+**Monitoring:** `POST|GET /api/analysis/monitoring/repository`  
+
+**WebSocket:** `WS /ws/live-feed`  
+
+**Health:** `GET /health`, `GET /`
+
+Full detail: **`/docs`** (Swagger).
+
+---
+
+## Project layout (verified)
+
+```
+Code_View/
+├── backend/
+│   ├── analysis/          # engine, parsers, refinement, archaeology/, ingestion/
+│   ├── api/               # routes, dossier, monitoring, websocket
+│   ├── models/, persistence/
+│   ├── main.py
+│   └── tests/             # e.g. test_archaeology.py
+├── frontend/
+│   ├── src/               # App.jsx, CodeViewDashboard.jsx, …
+│   └── vite.config.js
+├── data/                  # SQLite DB (gitignored if listed)
+├── CODE_VIEW_SPEC.md, CODE_VIEW_STRUCTURE.md, CODE_VIEW_README.md
+└── _zip12/                # optional reference snippets (not the main app)
+```
+
+---
+
+## Limitations
+
+- **Heuristic and static:** crypto claims, contradictions, call graph, and impact projection are **not** runtime-complete.
+- **Python-first** for deep AST and entity extraction; other languages may appear in file counts but are not fully modeled.
+- **Hosting APIs** (Render/Netlify) resolve **git** links, not arbitrary “live server filesystems.”
+- **No claim of institutional scoring** as an objective metric—reports are for review.
+
+---
+
+## License
+
+MIT is the **intended** license for this project; confirm a **`LICENSE`** file exists in your checkout and keep it in sync with maintainers.
+
+---
+
+**Code View:** evidence-first exploration and static archaeology—verify important conclusions in code and process.
