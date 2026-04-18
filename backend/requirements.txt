@@ -1,5 +1,6 @@
 # Code View backend — install everything:
 #   cd backend && python -m venv .venv && .venv/bin/pip install -r requirements.txt
+# Tests / CI: also install -r requirements-dev.txt
 # Then run: .venv/bin/uvicorn main:app --reload --port 8000
 # (Using the venv's Python avoids "ModuleNotFoundError: aiohttp".)
 

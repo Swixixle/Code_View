@@ -37,6 +37,10 @@ class CivicAuditResponse(BaseModel):
     signing_flows_detected: int
     recommendations: List[str]
     attack_vectors_identified: int
+    duration_seconds: float = Field(
+        ...,
+        description="Wall-clock time for the full civic audit run (monotonic clock, seconds).",
+    )
     scorecard_markdown: Optional[str] = None
     methodology_note: str = Field(
         default="Heuristic scan only; not a penetration test or institutional audit.",
@@ -76,5 +80,6 @@ def register_civic_audit_routes(router: APIRouter) -> None:
             signing_flows_detected=len(result.signing_flows),
             recommendations=recommendations[:10],
             attack_vectors_identified=attack_vectors,
+            duration_seconds=float(result.duration_seconds or 0.0),
             scorecard_markdown=scorecard,
         )

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -47,6 +48,7 @@ class CivicAuditResult:
     cryptographic_robustness_score: float = 0.0
     transparency_score: float = 0.0
     overall_civic_score: float = 0.0
+    duration_seconds: Optional[float] = None
 
 
 class CivicAuditAnalyzer:
@@ -102,6 +104,7 @@ class CivicAuditAnalyzer:
     ]
 
     async def analyze_civic_accountability(self, repo_path: Path) -> CivicAuditResult:
+        t0 = time.monotonic()
         result = CivicAuditResult(repo_path=str(repo_path.resolve()))
         _bundle = extract_repository(repo_path)
         entities = _bundle.entities
@@ -129,6 +132,7 @@ class CivicAuditAnalyzer:
                 confidence="high",
             )
         )
+        result.duration_seconds = time.monotonic() - t0
         return result
 
     async def _analyze_pattern_rules(self, repo_path: Path, _entities: List, result: CivicAuditResult) -> None:
