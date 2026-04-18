@@ -16,3 +16,7 @@ data/
 .idea/
 .vscode/
 .DS_Store
+
+# Frontend (Vite)
+frontend/node_modules/
+frontend/dist/
