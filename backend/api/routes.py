@@ -28,7 +28,12 @@ class AnalyzeResponse(BaseModel):
     commit_hash: str
     branch: str
     stages_completed: List[str]
+    stages_failed: List[str] = []
     coverage_percentage: float
+    evidence_items: int = 0
+    claims_assembled: int = 0
+    contradictions: int = 0
+    mechanisms: int = 0
 
 
 @analysis_router.post("/analyze", response_model=AnalyzeResponse)
@@ -70,7 +75,12 @@ async def analyze_repo(body: AnalyzeRequest) -> AnalyzeResponse:
         commit_hash=result.commit_hash,
         branch=result.branch,
         stages_completed=result.stages_completed,
+        stages_failed=result.stages_failed,
         coverage_percentage=result.coverage_percentage,
+        evidence_items=len(result.all_evidence),
+        claims_assembled=len(result.claims),
+        contradictions=len(result.contradictions),
+        mechanisms=len(result.mechanisms),
     )
 
 
