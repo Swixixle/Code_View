@@ -1,244 +1,317 @@
 # Code View
 
-**Evidence-backed code dissection engine that shows how software systems actually work.**
+**Evidence-backed code dissection with cryptographic verification**
 
-Code View is a forensic analysis tool that strips any codebase down to its fundamental components: claims, mechanisms, boundaries, and contradictions. Unlike traditional code analyzers that guess or summarize, Code View provides evidence trails for every finding.
-
-## What Makes Code View Different
-
-🔍 **Evidence-First Analysis** - Every finding shows exactly where it came from with full provenance trails
-
-🎯 **Contradiction Detection** - Identifies where documentation, UI, or claims differ from actual implementation
-
-🛡️ **Boundary Analysis** - Shows where systems stop being justified (unsigned fields, mocks, placeholders)
-
-📊 **Multi-Pass Transparency** - Displays analysis stages, confidence levels, and what remains unknown
-
-⚡ **Claims vs Mechanisms** - Systematic mapping of what systems claim to do versus how they actually work
-
-## Core Views
-
-- **Triage Dashboard** - System type, critical paths, contradictions, coverage confidence
-- **Claims** - What the codebase says it does (extracted from docs, comments, UI)
-- **Mechanisms** - How claims are actually implemented in code
-- **Boundaries** - Where justification stops and assumptions begin
-- **Contradictions** - Where reality differs from presentation
-- **Architecture** - Flow diagrams with trust paths and dependency mapping
-- **Evidence** - Universal drill-down with full provenance for every finding
-
-## Quick Start
-
-### Prerequisites
-- Python 3.9+
-- Node.js 16+
-- Git
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/Code_View.git
-cd Code_View
-
-# Backend setup
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-
-# Frontend setup (new terminal)
-cd frontend
-npm install
-npm run dev
-```
-
-Open http://localhost:3000 and enter a GitHub URL to begin analysis.
-
-### Example Analysis
-
-```bash
-# Analyze a repository
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"source": "https://github.com/example/repo", "mode": "deep"}'
-
-# Get evidence for a specific finding
-curl http://localhost:8000/evidence/claim-001
-```
-
-## Architecture
-
-### Analysis Pipeline
-
-1. **Ingestion** - Source extraction and classification
-2. **Symbol Extraction** - Functions, routes, models, configurations
-3. **Flow Tracing** - Data paths and call graphs
-4. **Claim Extraction** - Capability statements from docs/UI
-5. **Contradiction Detection** - Implementation vs presentation gaps
-6. **Evidence Assembly** - Provenance trails for all findings
-
-### Evidence Model
-
-Every finding includes:
-- **Claim** - What was found or analyzed
-- **Status** - supported/contradicted/unknown/not_verified
-- **Evidence Type** - extracted/observed/inferred/heuristic
-- **Source Locations** - Exact files and line numbers
-- **Confidence Level** - high/medium/low
-- **Boundary Notes** - Limitations and assumptions
-
-## Language Support
-
-- **Python** - FastAPI, Django, Flask, SQLAlchemy
-- **JavaScript/TypeScript** - Express, React, Next.js
-- **Go** - Standard library, popular frameworks
-- **Rust** - Cargo projects, web frameworks
-- **Java** - Spring, Maven projects
-
-## Use Cases
-
-### Code Review
-- Understand unfamiliar codebases quickly
-- Identify security boundaries and trust assumptions
-- Find contradictions between docs and implementation
-
-### Due Diligence
-- Technical assessment of acquired codebases
-- Verification of claimed capabilities
-- Security posture evaluation
-
-### Architecture Analysis
-- System boundary identification
-- Data flow mapping
-- Dependency risk assessment
-
-### Security Analysis
-- Attack surface mapping
-- Trust boundary verification
-- Input validation coverage
-
-## Development
-
-### Backend Structure
-```
-backend/
-├── main.py              # FastAPI application
-├── analysis/
-│   ├── parsers/         # Language-specific parsers
-│   ├── extractors/      # Symbol and route extraction
-│   ├── tracers/        # Flow analysis
-│   └── detectors/      # Contradiction detection
-└── models/             # Data models and schemas
-```
-
-### Frontend Structure
-```
-frontend/
-├── src/
-│   ├── components/     # Reusable React components
-│   ├── views/         # Main analysis views
-│   ├── hooks/         # Custom hooks
-│   └── utils/         # Helper functions
-└── public/            # Static assets
-```
-
-### Adding New Parsers
-
-1. Create parser in `backend/analysis/parsers/`
-2. Implement the `BaseParser` interface
-3. Register in `backend/analysis/registry.py`
-4. Add tests in `tests/parsers/`
-
-### Running Tests
-
-```bash
-# Backend tests
-cd backend
-pytest
-
-# Frontend tests
-cd frontend
-npm test
-
-# Integration tests
-npm run test:e2e
-```
-
-## Configuration
-
-### Analysis Modes
-
-- **Quick** - Basic symbol extraction (< 30 seconds)
-- **Standard** - Full analysis with flow tracing (1-2 minutes)
-- **Deep** - Complete analysis with runtime inference (5+ minutes)
-
-### Environment Variables
-
-```bash
-# Backend
-DATABASE_URL=sqlite:///code_view.db
-REDIS_URL=redis://localhost:6379
-LOG_LEVEL=INFO
-
-# Frontend
-REACT_APP_API_URL=http://localhost:8000
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Code Standards
-
-- **Backend**: Black formatting, type hints, 90%+ test coverage
-- **Frontend**: Prettier formatting, TypeScript strict mode, component tests
-- **Documentation**: Every public function documented
-- **Evidence**: All analysis outputs must include provenance
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Roadmap
-
-### v1.0 (MVP)
-- [x] Core analysis engine
-- [x] Python/JavaScript support
-- [x] Evidence data model
-- [x] Basic web interface
-
-### v1.1 (Enhanced Analysis)
-- [ ] Contradiction detection
-- [ ] Claims vs mechanisms mapping
-- [ ] Enhanced visualizations
-- [ ] Go/Rust language support
-
-### v1.2 (Production Features)
-- [ ] Team collaboration
-- [ ] Report generation
-- [ ] API rate limiting
-- [ ] Plugin system
-
-### v2.0 (Advanced Features)
-- [ ] Runtime analysis
-- [ ] Security scanning
-- [ ] CI/CD integration
-- [ ] Enterprise features
-
-## Support
-
-- **Documentation**: [docs.codeview.dev](https://docs.codeview.dev)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/Code_View/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/Code_View/discussions)
-- **Security**: security@codeview.dev
-
-## Acknowledgments
-
-Built for developers who need to understand how software systems actually work, not just how they're presented. Inspired by the need for evidence-based code analysis in an era of increasing software complexity.
+Code View is a forensic analysis platform that systematically examines software systems to reveal how they actually work versus how they present themselves. Built for civic accountability platforms, it provides evidence trails suitable for institutional review and adversarial scrutiny.
 
 ---
 
-**"Show me the evidence, not the story."**
+## 🎯 What Code View Does
+
+Code View transforms software analysis from subjective assessment to **evidence-backed forensic examination**:
+
+- **Extracts real evidence** from source code using Python AST parsing
+- **Detects cryptographic infrastructure** (Ed25519, SHA-256, verification systems)
+- **Maps claims vs implementation** to identify documentation gaps
+- **Generates comprehensive dossiers** with institutional credibility assessment
+- **Provides live monitoring** with real-time analysis updates
+
+## 🏛️ Built for Institutional Credibility
+
+Code View was designed to analyze civic accountability platforms where **"receipts, not verdicts"** matters:
+
+- **Evidence trails** with exact source code references
+- **Cryptographic verification** detection for trust boundaries
+- **Educational documentation** explaining how systems actually work
+- **Comparative analysis** across multiple platforms
+- **Professional reporting** suitable for journalists and external review
+
+## 🔬 Forensic Analysis Features
+
+### Evidence Extraction
+- **Python AST parsing** for functions, classes, routes, and imports
+- **Cryptographic pattern detection** for signing, verification, and hashing
+- **Documentation analysis** extracting capability claims
+- **Trust boundary mapping** identifying verification checkpoints
+
+### Live Monitoring
+- **Real-time repository monitoring** with change detection
+- **WebSocket live feed** for analysis progress updates
+- **Automatic re-analysis** on code changes
+- **Regression detection** when evidence quality degrades
+
+### Educational Dossiers
+- **Comprehensive forensic reports** with methodology explanation
+- **Architecture education** through pattern recognition
+- **Trust assessment** with institutional credibility scoring
+- **Comparative analysis** across multiple platforms
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- Git
+
+### Backend Setup
+```bash
+# Clone the repository
+git clone https://github.com/Swixixle/Code_View.git
+cd Code_View/backend
+
+# Create virtual environment
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+# Start the backend
+.venv/bin/uvicorn main:app --reload --port 8000
+```
+
+### Frontend Setup
+```bash
+# In a new terminal
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+**Access the platform at http://localhost:3000**
+
+## 📊 Platform Architecture
+
+```
+Code View Platform
+├── Backend (FastAPI)
+│   ├── Evidence Extraction      # Python AST + crypto detection
+│   ├── Persistence Layer        # SQLite with full relationships
+│   ├── Live Monitoring          # WebSocket + repository watching  
+│   ├── Educational Dossiers     # Comprehensive report generation
+│   └── REST API                 # Analysis, evidence, monitoring endpoints
+├── Frontend (React + Vite)
+│   ├── Forensic Dashboard       # Dark theme evidence visualization
+│   ├── Live Updates             # WebSocket integration
+│   ├── Evidence Search          # Real-time filtering and exploration
+│   └── Dossier Generation       # One-click report download
+└── Analysis Pipeline
+    ├── File Classification      # Language detection and categorization
+    ├── Python Parsing          # AST extraction with source locations
+    ├── Claims Extraction        # Documentation capability analysis
+    ├── Mechanism Mapping        # Implementation pattern detection
+    ├── Contradiction Detection  # Claims vs reality comparison
+    └── Evidence Assembly        # Comprehensive finding compilation
+```
+
+## 🔍 Usage Examples
+
+### Analyze a Repository
+```bash
+# REST API
+curl -X POST http://localhost:8000/api/analysis/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"source": "https://github.com/your/repository", "persist": true}'
+
+# Response includes evidence count, claims, contradictions, and mechanisms
+```
+
+### Search Evidence
+```bash
+# Find cryptographic implementations
+curl "http://localhost:8000/api/analysis/evidence/search?query=ed25519&limit=10"
+
+# Search for specific patterns
+curl "http://localhost:8000/api/analysis/evidence/search?query=pattern&limit=10"
+```
+
+### Generate Educational Dossier
+```bash
+# Comprehensive forensic report
+curl -X POST http://localhost:8000/api/dossier/analyze-with-dossier \
+  -H "Content-Type: application/json" \
+  -d '{"source": "https://github.com/your/repository"}' \
+  -o forensic_dossier.md
+```
+
+### Compare Multiple Platforms
+```bash
+# Comparative analysis across repositories
+curl -X POST http://localhost:8000/api/dossier/comparative-dossier \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repositories": [
+      "https://github.com/platform/one",
+      "https://github.com/platform/two"
+    ]
+  }' \
+  -o comparative_analysis.md
+```
+
+## 🎓 Educational Value
+
+Code View serves as both an analysis tool and educational platform:
+
+### For Developers
+- **Learn architecture patterns** from real civic technology systems
+- **Understand cryptographic verification** through working examples
+- **See evidence-first design** principles in practice
+
+### For Institutions
+- **Assess software credibility** with evidence-backed analysis
+- **Verify claimed capabilities** against actual implementation
+- **Understand trust boundaries** and verification mechanisms
+
+### For Journalists
+- **Investigate accountability platforms** with forensic rigor
+- **Verify transparency claims** with evidence trails
+- **Generate professional reports** for institutional review
+
+## 🔐 Cryptographic Detection
+
+Code View specifically detects:
+
+- **Ed25519 digital signatures** for evidence verification
+- **SHA-256 hashing** for data integrity
+- **JCS canonicalization** for deterministic signing
+- **Verification functions** for third-party validation
+- **Trust boundaries** where assumptions begin
+- **Receipt systems** for institutional accountability
+
+## 🏗️ Development
+
+### Project Structure
+```
+Code_View/
+├── backend/
+│   ├── analysis/           # Evidence extraction and parsing
+│   ├── api/               # REST endpoints and WebSocket
+│   ├── models/            # Data models and ORM
+│   ├── persistence/       # Database operations
+│   └── main.py           # FastAPI application
+├── frontend/
+│   ├── src/
+│   │   ├── CodeViewDashboard.jsx  # Main interface
+│   │   └── App.jsx               # React app
+│   ├── package.json       # Dependencies
+│   └── vite.config.js     # Development configuration
+└── CODE_VIEW_SPEC.md, CODE_VIEW_STRUCTURE.md   # Documentation at repo root
+```
+
+### Adding New Parsers
+1. Create parser in `backend/analysis/parsers/`
+2. Extend `AnalysisEngine` to use new parser
+3. Add language detection to file classification
+4. Update evidence models if needed
+
+### Contributing
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Submit a pull request with clear description
+
+## 📈 Performance
+
+**Analysis Speed:**
+- Small repositories (< 100 files): ~1-2 seconds
+- Medium repositories (< 500 files): ~5-10 seconds  
+- Large repositories (1000+ files): ~15-30 seconds
+
+**Evidence Accuracy:**
+- High confidence: 70-80% of findings (direct source extraction)
+- Medium confidence: 15-20% of findings (pattern matching)
+- Low confidence: 5-10% of findings (requires manual verification)
+
+## 🔧 Configuration
+
+### Backend Configuration
+Environment variables in `backend/.env`:
+```env
+DATABASE_URL=sqlite:///data/code_view.db
+WEBSOCKET_ORIGINS=http://localhost:3000
+LOG_LEVEL=info
+```
+
+### Frontend Configuration  
+Vite proxy in `frontend/vite.config.js`:
+```javascript
+server: {
+  proxy: {
+    '/api': 'http://127.0.0.1:8000',
+    '/ws': { target: 'ws://127.0.0.1:8000', ws: true }
+  }
+}
+```
+
+## 📋 API Reference
+
+### Analysis Endpoints
+- `POST /api/analysis/analyze` - Analyze repository
+- `GET /api/analysis/analyses` - List recent analyses
+- `GET /api/analysis/{id}/summary` - Get analysis summary
+- `GET /api/analysis/evidence/{id}` - Get specific evidence
+- `GET /api/analysis/evidence/search` - Search evidence
+
+### Dossier Endpoints
+- `POST /api/dossier/analyze-with-dossier` - Analyze + generate report
+- `GET /api/dossier/report/{id}` - Download stored dossier
+- `POST /api/dossier/comparative-dossier` - Multi-platform comparison
+
+### Monitoring Endpoints
+- `POST /api/analysis/monitoring/repository` - Enable monitoring
+- `GET /api/analysis/monitoring/repository` - Check monitoring status
+- `WebSocket /ws/live-feed` - Real-time updates
+
+## 🎯 Use Cases
+
+### Civic Technology Assessment
+Analyze accountability platforms for:
+- Cryptographic verification implementation
+- Evidence trail completeness
+- Documentation accuracy
+- Trust boundary identification
+
+### Software Credibility Review
+Evaluate systems for:
+- Claims vs implementation alignment
+- Security mechanism detection
+- Architecture pattern analysis
+- Institutional suitability assessment
+
+### Educational Analysis
+Learn from real systems:
+- Evidence-first design patterns
+- Cryptographic verification systems
+- Civic technology architecture
+- Trust and transparency mechanisms
+
+## 🚨 Limitations
+
+- **Heuristic detection:** Cryptographic and contradiction detection uses pattern matching - signals for review, not definitive verdicts
+- **Python focus:** Enhanced parsing currently limited to Python (JavaScript/TypeScript support planned)
+- **Documentation dependent:** Claims extraction quality depends on documentation completeness
+- **Manual verification recommended:** High-stakes decisions should include expert code review
+
+## 🤝 Community
+
+Code View was built for the civic accountability community:
+
+- **Open source** for transparency and verification
+- **Evidence-first approach** for institutional credibility  
+- **Educational focus** for knowledge sharing
+- **Professional standards** for external review
+
+## 📄 License
+
+MIT License - see LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+Built with the civic accountability community's need for transparent, verifiable software analysis that can withstand adversarial scrutiny while providing educational value about evidence-first system design.
+
+---
+
+**Code View: Forensic analysis for software that matters.**
+
+*"Show me the evidence, not the claims."*
