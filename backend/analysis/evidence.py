@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -21,9 +20,9 @@ from models.evidence import (
     ConfidenceLevel,
     ExtractedSymbol,
     MechanismTrace,
-    SourceLocation,
 )
-from analysis.parsers.python_parser import parse_python_directory
+from analysis.claims_enhanced import extract_enhanced_claims
+from analysis.parsers.python_parser_enhanced import parse_python_directory_enhanced
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +56,8 @@ class AnalysisEngine:
             language_stats = self._classify_files(repo_path)
 
             if language_stats.get("python", 0) > 0:
-                logger.info("Analyzing Python files...")
-                python_evidence = parse_python_directory(repo_path)
+                logger.info("Analyzing Python files (crypto-aware enhanced parser)...")
+                python_evidence = parse_python_directory_enhanced(repo_path)
                 analysis.all_evidence.extend(python_evidence)
                 analysis.stages_completed.append("python_parsing")
 
@@ -152,111 +151,7 @@ class AnalysisEngine:
         return language_stats
 
     async def _extract_claims(self, repo_path: Path) -> List[EvidenceItem]:
-        claims_evidence: List[EvidenceItem] = []
-        seen: set[Path] = set()
-
-        for doc_file in sorted(repo_path.rglob("README*")):
-            if doc_file.is_file() and doc_file not in seen:
-                seen.add(doc_file)
-                try:
-                    content = doc_file.read_text(encoding="utf-8")
-                    claims_evidence.extend(self._parse_claims_from_text(content, str(doc_file)))
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("Could not read %s: %s", doc_file, e)
-
-        for doc_file in sorted(repo_path.rglob("*.md")):
-            if doc_file.is_file() and doc_file not in seen:
-                seen.add(doc_file)
-                try:
-                    content = doc_file.read_text(encoding="utf-8")
-                    claims_evidence.extend(self._parse_claims_from_text(content, str(doc_file)))
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("Could not read %s: %s", doc_file, e)
-
-        return claims_evidence
-
-    def _parse_claims_from_text(self, text: str, file_path: str) -> List[EvidenceItem]:
-        claims: List[EvidenceItem] = []
-        lines = text.split("\n")
-
-        capability_patterns = [
-            r"supports?\s+([^.]+)",
-            r"provides?\s+([^.]+)",
-            r"implements?\s+([^.]+)",
-            r"enables?\s+([^.]+)",
-            r"can\s+([^.]+)",
-            r"allows?\s+([^.]+)",
-        ]
-
-        for line_num, line in enumerate(lines, 1):
-            line_lower = line.lower().strip()
-            if not line_lower or line.startswith("#"):
-                continue
-
-            for pattern in capability_patterns:
-                match = re.search(pattern, line_lower)
-                if match:
-                    capability = match.group(1).strip()
-                    claims.append(
-                        EvidenceItem(
-                            claim=f"System claims to {capability}",
-                            status=EvidenceStatus.UNKNOWN,
-                            evidence_type=EvidenceType.EXTRACTED,
-                            confidence=ConfidenceLevel.MEDIUM,
-                            source_locations=[
-                                SourceLocation(file_path=file_path, line_start=line_num)
-                            ],
-                            reasoning_chain=[
-                                f"Found capability claim in documentation: {line.strip()}"
-                            ],
-                            analysis_stage="claims_extraction",
-                        )
-                    )
-
-        feature_keywords = [
-            "authentication",
-            "authorization",
-            "security",
-            "encryption",
-            "api",
-            "rest",
-            "graphql",
-            "database",
-            "storage",
-            "monitoring",
-            "logging",
-            "analytics",
-            "reporting",
-            "real-time",
-            "websocket",
-            "streaming",
-            "batch",
-            "machine learning",
-            "ai",
-            "prediction",
-            "analysis",
-        ]
-
-        for keyword in feature_keywords:
-            if keyword in text.lower():
-                for line_num, line in enumerate(lines, 1):
-                    if keyword in line.lower():
-                        claims.append(
-                            EvidenceItem(
-                                claim=f"System mentions {keyword} functionality",
-                                status=EvidenceStatus.UNKNOWN,
-                                evidence_type=EvidenceType.EXTRACTED,
-                                confidence=ConfidenceLevel.LOW,
-                                source_locations=[
-                                    SourceLocation(file_path=file_path, line_start=line_num)
-                                ],
-                                reasoning_chain=[f"Found keyword '{keyword}' in documentation"],
-                                analysis_stage="claims_extraction",
-                            )
-                        )
-                        break
-
-        return claims
+        return extract_enhanced_claims(repo_path)
 
     def _map_mechanisms(self, evidence: List[EvidenceItem]) -> List[MechanismTrace]:
         mechanisms: List[MechanismTrace] = []
@@ -299,6 +194,27 @@ class AnalysisEngine:
                     claim_id="core_logic",
                     implementation_path=["functions"],
                     entry_points=entry_points,
+                    data_flow=[],
+                    dependencies=[],
+                )
+            )
+
+        crypto_evidence = [
+            e
+            for e in evidence
+            if any(
+                "crypto" in s.type or "sign" in s.type or "hash" in s.type for s in e.extracted_symbols
+            )
+            or "cryptographic" in e.claim.lower()
+            or "signature" in e.claim.lower()
+        ]
+        if crypto_evidence:
+            entry_points = [s for e in crypto_evidence for s in e.extracted_symbols]
+            mechanisms.append(
+                MechanismTrace(
+                    claim_id="cryptography_and_security",
+                    implementation_path=["crypto_signing", "verification", "hashing"],
+                    entry_points=entry_points[:50],
                     data_flow=[],
                     dependencies=[],
                 )
