@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -45,4 +46,27 @@ async def init_database() -> None:
     assert engine is not None
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate_sqlite_schema(conn)
+
     logger.info("Database engine ready at %s", DATABASE_URL)
+
+
+async def _migrate_sqlite_schema(conn) -> None:
+    """Lightweight SQLite migrations for additive columns (existing deployments)."""
+
+    def _upgrade(sync_conn):
+        cur = sync_conn.execute(text("PRAGMA table_info(analysis_records)"))
+        analysis_cols = {row[1] for row in cur.fetchall()}
+        if "refinement_metadata" not in analysis_cols:
+            sync_conn.execute(
+                text("ALTER TABLE analysis_records ADD COLUMN refinement_metadata JSON")
+            )
+
+        cur = sync_conn.execute(text("PRAGMA table_info(evidence_items)"))
+        evidence_cols = {row[1] for row in cur.fetchall()}
+        if "refinement_signal" not in evidence_cols:
+            sync_conn.execute(
+                text("ALTER TABLE evidence_items ADD COLUMN refinement_signal VARCHAR")
+            )
+
+    await conn.run_sync(_upgrade)

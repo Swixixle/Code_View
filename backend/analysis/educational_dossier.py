@@ -108,6 +108,9 @@ This dossier provides evidence-backed forensic analysis of the software system, 
         sections.append(f"- **{crypto_evidence} cryptographic components** detected (signing, verification, hashing)")
         pct_hi = (high_confidence_evidence / evidence_count * 100) if evidence_count else 0.0
         sections.append(f"- **{high_confidence_evidence} high-confidence findings** ({pct_hi:.0f}% of total)")
+
+        if getattr(analysis, "refinement_metadata", None):
+            sections.append(self._refinement_executive_snippet(analysis))
         
         # System classification
         framework = self._classify_system_type(analysis.all_evidence)
@@ -124,6 +127,44 @@ This dossier provides evidence-backed forensic analysis of the software system, 
         sections.append(self._get_trust_explanation(trust_score, analysis))
         
         return "\n".join(sections)
+    
+    def _refinement_executive_snippet(self, analysis: AnalysisEvidence) -> str:
+        """Summarize deduplication + classification when `refinement_metadata` is present."""
+        meta = analysis.refinement_metadata or {}
+        dedup = meta.get("deduplication") or {}
+        cls = meta.get("classification") or {}
+        tone = meta.get("tone_calibration") or {}
+        lines = ["\n### Evidence refinement (deduplication and labeling)\n"]
+        if dedup:
+            lines.append(
+                f"- **Post-deduplication count:** {dedup.get('deduplicated_count', '?')} items "
+                f"(from {dedup.get('original_count', '?')}; ~{dedup.get('reduction_percentage', 0):.0f}% reduction)."
+            )
+        impl = cls.get("implementation_combined") or {}
+        if impl:
+            lines.append(
+                f"- **Implementation-like share:** ~{impl.get('percentage', 0):.0f}% of items "
+                "(`verified_implementation` + `likely_implementation`)."
+            )
+        pat = cls.get("detected_patterns") or {}
+        if pat:
+            lines.append(
+                f"- **Pattern-heavy items:** ~{pat.get('percentage', 0):.0f}% flagged as `detected_pattern`."
+            )
+        qs = tone.get("quality_summary") or {}
+        if qs:
+            eq = str(qs.get("evidence_quality", "")).replace("_", " ")
+            at = str(qs.get("analysis_type", "")).replace("_", " ")
+            lines.append(f"- **Calibrated quality stance:** {eq} ({at}).")
+        headline = meta.get("quality_headline")
+        if headline:
+            lines.append(f"- **Summary:** {headline}")
+        lines.append("")
+        lines.append(
+            "Headline counts above are **after deduplication**; interpret contradictory or "
+            "high-stakes claims using source locations and per-item `refinement_signal`."
+        )
+        return "\n".join(lines)
     
     def _generate_methodology_section(self, analysis: AnalysisEvidence) -> str:
         """Generate educational methodology section"""

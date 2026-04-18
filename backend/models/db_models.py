@@ -32,6 +32,8 @@ class AnalysisRecord(Base):
     monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     next_check: Mapped[datetime | None] = mapped_column(DateTime)
 
+    refinement_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     evidence_items: Mapped[list["EvidenceRecord"]] = relationship(
         back_populates="analysis", cascade="all, delete-orphan"
     )
@@ -69,6 +71,7 @@ class EvidenceRecord(Base):
 
     analysis_stage: Mapped[str] = mapped_column(String, nullable=False)
     boundary_note: Mapped[str | None] = mapped_column(Text)
+    refinement_signal: Mapped[str | None] = mapped_column(String, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_verified: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

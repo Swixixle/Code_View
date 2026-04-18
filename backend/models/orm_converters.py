@@ -40,6 +40,7 @@ def pydantic_to_orm(analysis_evidence: AnalysisEvidence, session: AsyncSession) 
         coverage_percentage=analysis_evidence.coverage_percentage,
         monitoring_enabled=analysis_evidence.monitoring_enabled,
         next_check=analysis_evidence.next_check,
+        refinement_metadata=analysis_evidence.refinement_metadata,
     )
     session.add(analysis_record)
 
@@ -81,6 +82,7 @@ def pydantic_to_orm(analysis_evidence: AnalysisEvidence, session: AsyncSession) 
                 counterevidence=evidence_item.counterevidence,
                 analysis_stage=evidence_item.analysis_stage,
                 boundary_note=evidence_item.boundary_note,
+                refinement_signal=evidence_item.refinement_signal,
                 timestamp=evidence_item.timestamp,
                 last_verified=evidence_item.last_verified,
             )
@@ -192,6 +194,7 @@ def orm_to_pydantic(analysis_record: AnalysisRecord) -> AnalysisEvidence:
                 counterevidence=er.counterevidence or [],
                 analysis_stage=er.analysis_stage,
                 boundary_note=er.boundary_note,
+                refinement_signal=getattr(er, "refinement_signal", None),
                 timestamp=er.timestamp,
                 last_verified=er.last_verified,
             )

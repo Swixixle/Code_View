@@ -277,6 +277,7 @@ class EvidencePersistenceService:
                     "claims_assembled": claims_count or 0,
                     "contradictions": contradictions_count or 0,
                     "mechanisms": mechanisms_count or 0,
+                    "refinement": record.refinement_metadata,
                 }
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to get analysis summary: %s", e)

@@ -26,6 +26,17 @@ from analysis.parsers.python_parser_enhanced import parse_python_directory_enhan
 
 logger = logging.getLogger(__name__)
 
+# Stages produced by `claims_enhanced` — used to split doc-claim evidence after refinement
+CLAIM_EVIDENCE_STAGES = frozenset(
+    {
+        "enhanced_claims_extraction",
+        "cryptographic_claims_extraction",
+        "evidence_claims_extraction",
+        "credibility_claims_extraction",
+        "feature_claims_extraction",
+    }
+)
+
 
 class AnalysisEngine:
     """Coordinates parsing, documentation claims, and contradiction detection."""
@@ -65,6 +76,13 @@ class AnalysisEngine:
             claims_evidence = await self._extract_claims(repo_path)
             analysis.all_evidence.extend(claims_evidence)
             analysis.stages_completed.append("claims_extraction")
+
+            from analysis.refinement import apply_analysis_refinement
+
+            apply_analysis_refinement(analysis)
+            analysis.stages_completed.append("evidence_refinement")
+
+            claims_evidence = [e for e in analysis.all_evidence if e.analysis_stage in CLAIM_EVIDENCE_STAGES]
 
             logger.info("Mapping claims to mechanisms...")
             analysis.mechanisms = self._map_mechanisms(analysis.all_evidence)
@@ -366,5 +384,5 @@ class AnalysisEngine:
         return implementation_claims
 
     def _calculate_coverage(self, analysis: AnalysisEvidence) -> float:
-        total_stages = 6
+        total_stages = 7
         return (len(analysis.stages_completed) / total_stages) * 100.0

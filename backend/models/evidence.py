@@ -70,6 +70,12 @@ class EvidenceItem(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     last_verified: datetime = Field(default_factory=datetime.now)
 
+    # Pattern vs implementation (set during evidence refinement; optional for backward compatibility)
+    refinement_signal: Optional[str] = Field(
+        default=None,
+        description="verified_implementation | likely_implementation | detected_pattern | uncertain",
+    )
+
     depends_on: List[str] = Field(default_factory=list)
     supports: List[str] = Field(default_factory=list)
 
@@ -160,6 +166,9 @@ class AnalysisEvidence(BaseModel):
 
     monitoring_enabled: bool = False
     next_check: Optional[datetime] = None
+
+    # Deduplication + classification + tone + human-review (optional; API responses)
+    refinement_metadata: Optional[Dict[str, Any]] = None
 
 
 # Primary aggregate used across API and storage
