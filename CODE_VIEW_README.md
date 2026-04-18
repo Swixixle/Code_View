@@ -34,6 +34,12 @@ Code View was designed to analyze civic accountability platforms where **"receip
 - **Documentation analysis** extracting capability claims
 - **Trust boundary mapping** identifying verification checkpoints
 
+### Evidence Refinement (defensible headline numbers)
+- **Deduplication** of overlapping findings (exact, semantic, and repeated pattern spikes)
+- **Pattern vs implementation labeling** (`refinement_signal` on each evidence item)
+- **Tone calibration** and **human-review priorities** stored with the analysis
+- Persisted on `GET /api/analysis/{id}/summary` as **`refinement`** when available
+
 ### Live Monitoring
 - **Real-time repository monitoring** with change detection
 - **WebSocket live feed** for analysis progress updates
@@ -87,22 +93,24 @@ npm run dev
 Code View Platform
 ├── Backend (FastAPI)
 │   ├── Evidence Extraction      # Python AST + crypto detection
-│   ├── Persistence Layer        # SQLite with full relationships
-│   ├── Live Monitoring          # WebSocket + repository watching  
-│   ├── Educational Dossiers     # Comprehensive report generation
-│   └── REST API                 # Analysis, evidence, monitoring endpoints
+│   ├── Evidence Refinement      # Dedup, pattern vs implementation, review hints
+│   ├── Persistence Layer      # SQLite with full relationships
+│   ├── Live Monitoring        # WebSocket + repository watching
+│   ├── Educational Dossiers   # Comprehensive report generation
+│   └── REST API               # Analysis, evidence, monitoring endpoints
 ├── Frontend (React + Vite)
-│   ├── Forensic Dashboard       # Dark theme evidence visualization
-│   ├── Live Updates             # WebSocket integration
-│   ├── Evidence Search          # Real-time filtering and exploration
-│   └── Dossier Generation       # One-click report download
+│   ├── Forensic Dashboard     # Dark theme evidence visualization
+│   ├── Live Updates           # WebSocket integration
+│   ├── Evidence Search        # Real-time filtering and exploration
+│   └── Dossier Generation     # One-click report download
 └── Analysis Pipeline
-    ├── File Classification      # Language detection and categorization
-    ├── Python Parsing          # AST extraction with source locations
-    ├── Claims Extraction        # Documentation capability analysis
-    ├── Mechanism Mapping        # Implementation pattern detection
-    ├── Contradiction Detection  # Claims vs reality comparison
-    └── Evidence Assembly        # Comprehensive finding compilation
+    ├── File Classification    # Language detection and categorization
+    ├── Python Parsing         # AST extraction with source locations
+    ├── Claims Extraction      # Documentation capability analysis
+    ├── Evidence Refinement    # Dedup + labeling + tone/review metadata
+    ├── Mechanism Mapping      # Implementation pattern detection
+    ├── Contradiction Detection # Claims vs reality comparison
+    └── Evidence Assembly      # Comprehensive finding compilation
 ```
 
 ## 🔍 Usage Examples
@@ -185,17 +193,18 @@ Code View specifically detects:
 ```
 Code_View/
 ├── backend/
-│   ├── analysis/           # Evidence extraction and parsing
-│   ├── api/               # REST endpoints and WebSocket
-│   ├── models/            # Data models and ORM
-│   ├── persistence/       # Database operations
-│   └── main.py           # FastAPI application
+│   ├── analysis/                 # Evidence extraction and parsing
+│   │   └── refinement/         # Dedup, classification, tone, human-review bundle
+│   ├── api/                    # REST endpoints and WebSocket
+│   ├── models/                 # Data models and ORM
+│   ├── persistence/            # Database operations
+│   └── main.py                 # FastAPI application
 ├── frontend/
 │   ├── src/
 │   │   ├── CodeViewDashboard.jsx  # Main interface
-│   │   └── App.jsx               # React app
-│   ├── package.json       # Dependencies
-│   └── vite.config.js     # Development configuration
+│   │   └── App.jsx                # React app
+│   ├── package.json            # Dependencies
+│   └── vite.config.js          # Development configuration
 └── CODE_VIEW_SPEC.md, CODE_VIEW_STRUCTURE.md   # Documentation at repo root
 ```
 
@@ -249,7 +258,7 @@ server: {
 ### Analysis Endpoints
 - `POST /api/analysis/analyze` - Analyze repository
 - `GET /api/analysis/analyses` - List recent analyses
-- `GET /api/analysis/{id}/summary` - Get analysis summary
+- `GET /api/analysis/{id}/summary` - Get analysis summary (includes optional **`refinement`** metadata)
 - `GET /api/analysis/evidence/{id}` - Get specific evidence
 - `GET /api/analysis/evidence/search` - Search evidence
 
