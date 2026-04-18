@@ -142,6 +142,16 @@ curl "http://localhost:8000/api/analysis/entity/ENTITY_ID/project"
 curl "http://localhost:8000/api/analysis/evidence/search?query=ed25519&limit=10"
 ```
 
+**Civic heuristic audit** (Open Case–style pattern **names**, keyword/AST triage — not a pen test):
+
+```bash
+curl -s -X POST http://localhost:8000/api/analysis/civic-audit \
+  -H "Content-Type: application/json" \
+  -d '{"directory_path": "/absolute/path/to/repo", "include_scorecard": true}'
+```
+
+See `backend/analysis/civic_audit/civic_audit_install.md` for CLI (`civic_audit_cli.py`).
+
 **Dossier** (Markdown download):
 
 ```bash

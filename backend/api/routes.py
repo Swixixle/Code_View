@@ -17,6 +17,7 @@ from analysis.ingestion.materialize import (
     materialize_zip_url,
 )
 from analysis.ingestion.pipeline import AnalysisPipelineResult, run_analysis_pipeline
+from analysis.civic_audit.endpoints import register_civic_audit_routes
 from analysis.ingestion.platforms import resolve_netlify_repo_url, resolve_render_repo_url
 from analysis.archaeology.history import git_file_history, git_log_line_range
 from analysis.archaeology.project_impact import shallow_transitive_dependents
@@ -29,6 +30,8 @@ from persistence.service import persistence_service
 
 analysis_router = APIRouter()
 _engine = AnalysisEngine()
+
+register_civic_audit_routes(analysis_router)
 
 
 class AnalyzeOptions(BaseModel):

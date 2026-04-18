@@ -152,6 +152,7 @@ Static graph edges (v1): **`contains`**, **`imports`**, **`calls`** — see `ana
 | Legacy | `POST /api/analysis/analyze` | `{"source": "<git url or local path>"}` |
 | Archaeology | `POST /api/analysis/resolve` | JSON: `repo_id`, `commit_sha`, `file_path`, `line` |
 | | `GET /api/analysis/entity/{id}/{identify,trace,interpret,project}` | `interpret` optional `?repo_path=` |
+| Civic (heuristic) | `POST /api/analysis/civic-audit` | Local `directory_path` only; see `analysis/civic_audit/` |
 | Dossier | `POST /api/dossier/analyze-with-dossier` | Not `/educational` |
 | | `POST /api/dossier/comparative-dossier` | 2–5 HTTPS repo URLs |
 | | `GET /api/dossier/report/{analysis_id}` | |
