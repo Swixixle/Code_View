@@ -14,6 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from analysis.scheduler import AnalysisScheduler
+from api.dossier import dossier_router
 from api.monitoring import monitoring_router
 from api.routes import analysis_router
 from api.websocket import WebSocketManager
@@ -59,6 +60,7 @@ app.add_middleware(
 
 app.include_router(analysis_router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(monitoring_router, prefix="/api/monitoring", tags=["monitoring"])
+app.include_router(dossier_router, prefix="/api/dossier", tags=["dossier"])
 
 
 @app.get("/")
@@ -67,7 +69,7 @@ async def root():
         "service": "Code View API",
         "status": "running",
         "timestamp": datetime.now().isoformat(),
-        "features": ["analysis", "live_monitoring", "evidence_trails"],
+        "features": ["analysis", "dossiers", "live_monitoring", "evidence_trails"],
     }
 
 
