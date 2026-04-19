@@ -36,6 +36,28 @@ def test_hashes_stable() -> None:
     assert len(sha256_hex("test")) == 64
 
 
+def test_nested_functions_have_distinct_qualified_names(tmp_path: Path) -> None:
+    """Regression: module-level nested defs must not share the same qualified_name."""
+    m = tmp_path / "nested.py"
+    m.write_text(
+        "def outer_a():\n"
+        "    def inner():\n"
+        "        return 1\n"
+        "    return inner\n"
+        "def outer_b():\n"
+        "    def inner():\n"
+        "        return 2\n"
+        "    return inner\n",
+        encoding="utf-8",
+    )
+    from analysis.archaeology.extractor import extract_from_file
+
+    ents = extract_from_file(tmp_path, m)
+    inners = [e for e in ents if e.symbol_name == "inner"]
+    assert len(inners) == 2
+    assert inners[0].qualified_name != inners[1].qualified_name
+
+
 def test_extract_sample_tree(sample_repo: Path) -> None:
     from analysis.archaeology.extractor import extract_from_file
 
@@ -76,6 +98,36 @@ async def test_resolve_innermost(sample_repo: Path) -> None:
 
     eid = make_entity_id(repo_id, commit, res.primary["qualified_name"], res.primary["file_path"], res.primary["start_line"])
     assert eid == res.primary["entity_id"]
+
+
+@pytest.mark.asyncio
+async def test_search_entities_substring(sample_repo: Path) -> None:
+    from analysis.archaeology.extractor import extract_from_file
+    from analysis.archaeology.graph_builder import collect_relations
+    from analysis.archaeology.ids import stable_repo_id
+    from analysis.archaeology.store import persist_archaeology_full, search_entities
+    from database import init_database
+
+    await init_database()
+    repo_id = stable_repo_id(str(sample_repo.resolve()))
+    commit = "c" * 40
+    ents = extract_from_file(sample_repo, sample_repo / "pkg" / "mod.py")
+    drafts = collect_relations(sample_repo, ents)
+    await persist_archaeology_full(repo_id=repo_id, commit_sha=commit, entities=ents, drafts=drafts)
+
+    by_sym = await search_entities(repo_id=repo_id, commit_sha=commit, query="inner", limit=20)
+    assert any(e.symbol_name == "inner" for e in by_sym)
+
+    by_file = await search_entities(repo_id=repo_id, commit_sha=commit, query="pkg/mod", limit=20)
+    assert by_file
+
+    by_kind = await search_entities(
+        repo_id=repo_id, commit_sha=commit, query="C", entity_kind="class", limit=20
+    )
+    assert all(e.entity_kind == "class" for e in by_kind)
+    assert any(e.symbol_name == "C" for e in by_kind)
+
+    assert await search_entities(repo_id=repo_id, commit_sha=commit, query="   ", limit=5) == []
 
 
 def test_analyze_resolve_smoke() -> None:

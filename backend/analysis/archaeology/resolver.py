@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from database import get_session
 from models.db_models import CodeEntityRecord
@@ -50,6 +51,25 @@ async def resolve_line_to_entity(
             CodeEntityRecord.end_line >= line,
         )
         rows = list((await session.execute(stmt)).scalars().all())
+
+        if not rows and norm:
+            base = Path(norm).name
+            if base != norm:
+                stmt2 = select(CodeEntityRecord).where(
+                    CodeEntityRecord.repo_id == repo_id,
+                    CodeEntityRecord.commit_sha == commit_sha,
+                    CodeEntityRecord.start_line <= line,
+                    CodeEntityRecord.end_line >= line,
+                    or_(
+                        CodeEntityRecord.file_path == base,
+                        CodeEntityRecord.file_path.like(f"%/{base}"),
+                    ),
+                )
+                rows = list((await session.execute(stmt2)).scalars().all())
+                if rows:
+                    uncertainty.append("path_suffix_match")
+                    if len({r.file_path for r in rows}) > 1:
+                        uncertainty.append("ambiguous_path_resolution")
 
     if not rows:
         return ResolveResult(

@@ -136,6 +136,7 @@ class _EntityExtractor(ast.NodeVisitor):
         self.lines = lines
         self.entities: list[ExtractedEntity] = []
         self._class_stack: list[str] = []
+        self._function_stack: list[str] = []
 
     def _snippet(self, node: ast.AST) -> str:
         start = node.lineno - 1
@@ -215,16 +216,20 @@ class _EntityExtractor(ast.NodeVisitor):
         cnt = content_hash_from_source(self._snippet(node))
         is_route = any(_decorator_is_route(d) for d in node.decorator_list)
 
-        if self._class_stack:
-            qual = f"{self._class_stack[-1]}.{node.name}"
+        if self._function_stack:
+            parent = self._function_stack[-1]
+            qual = f"{parent}.{node.name}"
+            kind: str = "function"
+        elif self._class_stack:
             parent = self._class_stack[-1]
-            kind: str = "method"
+            qual = f"{self._class_stack[-1]}.{node.name}"
+            kind = "method"
         else:
-            qual = f"{self.module_qn}.{node.name}" if self.module_qn else node.name
             parent = self.module_qn
+            qual = f"{self.module_qn}.{node.name}" if self.module_qn else node.name
             kind = "function"
 
-        if is_route and not self._class_stack:
+        if is_route and not self._class_stack and not self._function_stack:
             route_qual = qual + ":route"
             route_meta = _extract_route_meta(list(node.decorator_list)) or "route"
             sig_r = sha256_hex(f"route|{route_meta}|{sig}")
@@ -239,19 +244,29 @@ class _EntityExtractor(ast.NodeVisitor):
                 struct_hash=struct,
                 doc=doc,
             )
-        else:
-            self._add(
-                kind=kind,
-                qual_name=qual,
-                sym=node.name,
-                node=node,
-                parent_qn=parent,
-                content_hash=cnt,
-                sig_hash=sig,
-                struct_hash=struct,
-                doc=doc,
-            )
-        self.generic_visit(node)
+            self._function_stack.append(route_qual)
+            try:
+                self.generic_visit(node)
+            finally:
+                self._function_stack.pop()
+            return
+
+        self._add(
+            kind=kind,
+            qual_name=qual,
+            sym=node.name,
+            node=node,
+            parent_qn=parent,
+            content_hash=cnt,
+            sig_hash=sig,
+            struct_hash=struct,
+            doc=doc,
+        )
+        self._function_stack.append(qual)
+        try:
+            self.generic_visit(node)
+        finally:
+            self._function_stack.pop()
 
 
 def extract_from_file(repo_root: Path, file_path: Path) -> list[ExtractedEntity]:

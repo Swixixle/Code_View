@@ -2,15 +2,61 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 
 from analysis.archaeology.extractor import ExtractedEntity
 from analysis.archaeology.graph_builder import RelationDraft
 from analysis.archaeology.ids import make_entity_id, make_relation_id
 from database import get_session
 from models.db_models import CodeEntityRecord, EntityRelationRecord
+
+
+def _like_pattern_contains(raw: str) -> tuple[str, str]:
+    """Build a case-insensitive LIKE pattern and escape char for SQLite/SQLAlchemy."""
+    esc = "\\"
+    escaped = (
+        raw.replace(esc, esc + esc)
+        .replace("%", esc + "%")
+        .replace("_", esc + "_")
+    )
+    return f"%{escaped.lower()}%", esc
+
+
+def _entity_loc_key(ex: ExtractedEntity) -> tuple[str, str, int]:
+    return (ex.qualified_name, ex.file_path, ex.start_line)
+
+
+def _resolve_parent_entity_id(
+    ex: ExtractedEntity,
+    *,
+    loc_to_id: dict[tuple[str, str, int], str],
+    by_qual: dict[str, list[tuple[str, str, int]]],
+) -> str | None:
+    pq = ex.parent_qualified_name
+    if not pq:
+        return None
+    my = _entity_loc_key(ex)
+    my_id = loc_to_id[my]
+    plocs = by_qual.get(pq, [])
+    if not plocs:
+        return None
+    uniq_locs = sorted(set(plocs))
+    if len(uniq_locs) == 1:
+        cand = loc_to_id[uniq_locs[0]]
+        return None if cand == my_id else cand
+    same_file = [lk for lk in uniq_locs if lk[1] == ex.file_path]
+    pool = same_file or uniq_locs
+    inner_line = my[2]
+    enclosing = [lk for lk in pool if lk[2] < inner_line]
+    if enclosing:
+        best_loc = max(enclosing, key=lambda lk: lk[2])
+        cand = loc_to_id[best_loc]
+        return None if cand == my_id else cand
+    cand = loc_to_id[sorted(pool)[0]]
+    return None if cand == my_id else cand
 
 
 async def persist_archaeology_full(
@@ -24,21 +70,27 @@ async def persist_archaeology_full(
     await clear_archaeology_snapshot(repo_id, commit_sha)
 
     now = datetime.now(timezone.utc)
-    qual_to_id: dict[str, str] = {}
-    for ex in entities:
-        qual_to_id[ex.qualified_name] = make_entity_id(
+    loc_to_id: dict[tuple[str, str, int], str] = {
+        _entity_loc_key(ex): make_entity_id(
             repo_id, commit_sha, ex.qualified_name, ex.file_path, ex.start_line
         )
+        for ex in entities
+    }
+    by_qual: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
+    for ex in entities:
+        by_qual[ex.qualified_name].append(_entity_loc_key(ex))
+
+    qual_to_id: dict[str, str] = {}
+    for q, locs in by_qual.items():
+        qual_to_id[q] = loc_to_id[sorted(set(locs))[0]]
 
     resolved_rels = relations_from_drafts(drafts, qual_to_id)
 
     ent_rows: list[CodeEntityRecord] = []
     for ex in entities:
-        eid = qual_to_id[ex.qualified_name]
-        pid: str | None = None
-        if ex.parent_qualified_name and ex.parent_qualified_name in qual_to_id:
-            cand = qual_to_id[ex.parent_qualified_name]
-            pid = None if cand == eid else cand
+        lk = _entity_loc_key(ex)
+        eid = loc_to_id[lk]
+        pid = _resolve_parent_entity_id(ex, loc_to_id=loc_to_id, by_qual=by_qual)
 
         ent_rows.append(
             CodeEntityRecord(
@@ -152,6 +204,59 @@ async def list_entities_for_repo_commit(repo_id: str, commit_sha: str) -> list[C
             )
         )
         return list(r.scalars().all())
+
+
+def _entity_search_rank(qraw: str, row: CodeEntityRecord) -> int:
+    """Lower is better: exact symbol, then qual tail, symbol substring, qual, path."""
+    q = qraw.strip().lower()
+    sym = (row.symbol_name or "").lower()
+    qual = (row.qualified_name or "").lower()
+    fp = (row.file_path or "").lower()
+    trail = qual.rsplit(".", 1)[-1] if qual else ""
+    if sym == q:
+        return 1
+    if qual == q or trail == q:
+        return 2
+    if q in sym:
+        return 3
+    if q in qual:
+        return 4
+    if q in fp:
+        return 5
+    return 6
+
+
+async def search_entities(
+    *,
+    repo_id: str,
+    commit_sha: str,
+    query: str,
+    entity_kind: str | None = None,
+    limit: int = 50,
+) -> list[CodeEntityRecord]:
+    """Substring match (case-insensitive) on symbol_name, qualified_name, or file_path."""
+    q = query.strip()
+    if not q:
+        return []
+    pattern, esc = _like_pattern_contains(q)
+    fetch_cap = min(max(limit * 25, limit), 800)
+    async with get_session() as session:
+        stmt = select(CodeEntityRecord).where(
+            CodeEntityRecord.repo_id == repo_id,
+            CodeEntityRecord.commit_sha == commit_sha,
+            or_(
+                func.lower(CodeEntityRecord.symbol_name).like(pattern, escape=esc),
+                func.lower(CodeEntityRecord.qualified_name).like(pattern, escape=esc),
+                func.lower(CodeEntityRecord.file_path).like(pattern, escape=esc),
+            ),
+        )
+        if entity_kind:
+            stmt = stmt.where(CodeEntityRecord.entity_kind == entity_kind)
+        stmt = stmt.limit(fetch_cap)
+        r = await session.execute(stmt)
+        rows = list(r.scalars().all())
+    rows.sort(key=lambda e: (_entity_search_rank(q, e), (e.qualified_name or "")))
+    return rows[:limit]
 
 
 async def list_relations_for_entity(
