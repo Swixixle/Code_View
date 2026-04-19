@@ -135,6 +135,8 @@ def test_archaeology_flow_resolve_identify_trace_interpret_search(tmp_path: Path
         assert body["observed_evolution"], "interpret should surface real git commits"
         assert all(x.get("source_class") == "git_history" for x in body["observed_evolution"])
         assert body.get("history_precision") in ("line", "file")
+        assert isinstance(body.get("history_notes"), list)
+        assert body["history_notes"], "interpret should label line vs file history scope"
 
         ident = client.get(f"/api/analysis/entity/{eid}/identify")
         assert ident.status_code == 200
@@ -142,6 +144,29 @@ def test_archaeology_flow_resolve_identify_trace_interpret_search(tmp_path: Path
         assert ij["entity_id"] == eid
         assert ij["file_path"] == "signing.py"
         assert "line_span" in ij
+        assert "source_context" in ij
+        assert ij["source_context"].get("snippet")
+
+        ev = client.get(
+            f"/api/analysis/entity/{eid}/evidence",
+            params={"analysis_id": aid},
+        )
+        assert ev.status_code == 200
+        evj = ev.json()
+        assert evj["entity_id"] == eid
+        assert evj["analysis_id"] == aid
+        assert isinstance(evj["items"], list)
+
+        es = client.get(
+            "/api/analysis/entities/search",
+            params={"q": "verify_helper", "analysis_id": aid},
+        )
+        assert es.status_code == 200
+        ej = es.json()
+        assert ej["count"] >= 1
+        assert ej["repo_id"] == repo_id
+        assert ej["commit_sha"] == sha
+        assert any(x.get("symbol_name") == "verify_helper" for x in ej["entities"])
 
         tr = client.get(f"/api/analysis/entity/{eid}/trace")
         assert tr.status_code == 200

@@ -64,6 +64,21 @@ class EvidencePersistenceService:
             logger.error("Failed to retrieve analysis %s: %s", analysis_id, e)
             return None
 
+    async def get_analysis_repo_identity(self, analysis_id: str) -> Optional[tuple[str, str]]:
+        """Return (repository_url, commit_hash) for archaeology scoping, or None if missing."""
+        try:
+            async with get_session() as session:
+                stmt = select(AnalysisRecord.repository_url, AnalysisRecord.commit_hash).where(
+                    AnalysisRecord.id == analysis_id
+                )
+                row = (await session.execute(stmt)).one_or_none()
+                if row is None:
+                    return None
+                return str(row[0]), str(row[1])
+        except Exception as e:  # noqa: BLE001
+            logger.error("Failed to read analysis scope %s: %s", analysis_id, e)
+            return None
+
     async def get_evidence_item(self, evidence_id: str) -> Optional[dict]:
         try:
             async with get_session() as session:
@@ -196,6 +211,70 @@ class EvidencePersistenceService:
                 return [row_to_dict(r) for r in ranked[:limit]]
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to search evidence: %s", e)
+            return []
+
+    async def get_evidence_for_entity(
+        self, analysis_id: str, entity_id: str, *, limit: int = 120
+    ) -> list[dict]:
+        """Evidence rows linked via linked_entity_ids or linked_relation_ids (static graph)."""
+        try:
+            from analysis.archaeology.store import get_entity_by_id, list_relations_for_entity
+
+            rel_ids: set[str] = set()
+            ent = await get_entity_by_id(entity_id)
+            if ent:
+                out, inc = await list_relations_for_entity(
+                    entity_id,
+                    repo_id=ent.repo_id,
+                    commit_sha=ent.commit_sha,
+                    direction="both",
+                )
+                rel_ids = {r.relation_id for r in out + inc}
+
+            async with get_session() as session:
+                stmt = select(EvidenceRecord).where(EvidenceRecord.analysis_id == analysis_id)
+                rows = list((await session.execute(stmt)).scalars().all())
+
+            matched: list[EvidenceRecord] = []
+            seen: set[str] = set()
+            for r in rows:
+                lids = list(getattr(r, "linked_entity_ids", None) or [])
+                rids = list(getattr(r, "linked_relation_ids", None) or [])
+                hit = entity_id in lids or (bool(rel_ids) and bool(set(rids) & rel_ids))
+                if hit and r.id not in seen:
+                    seen.add(r.id)
+                    matched.append(r)
+
+            decorated = [(source_class_rank(getattr(r, "source_class", None)), r) for r in matched]
+            decorated.sort(key=lambda t: t[0])
+            out_rows = [t[1] for t in decorated][:limit]
+
+            def row_to_dict(r: EvidenceRecord) -> dict:
+                sc = getattr(r, "source_class", None) or "keyword_heuristic"
+                claim = r.claim or ""
+                return {
+                    "id": r.id,
+                    "claim": claim[:500] + ("…" if len(claim) > 500 else ""),
+                    "claim_full_length": len(claim),
+                    "status": r.status,
+                    "confidence": r.confidence,
+                    "evidence_type": r.evidence_type,
+                    "analysis_stage": r.analysis_stage,
+                    "source_class": sc,
+                    "provenance_label": provenance_label_for_source_class(sc),
+                    "source_locations": r.source_locations or [],
+                    "linked_entity_ids": (getattr(r, "linked_entity_ids", None) or [])[:30],
+                    "linked_relation_ids": (getattr(r, "linked_relation_ids", None) or [])[:30],
+                    "refinement_signal": getattr(r, "refinement_signal", None),
+                    "boundary_note": (r.boundary_note or "")[:400],
+                    "derived_from_doc": bool(getattr(r, "derived_from_doc", False)),
+                    "derived_from_code": bool(getattr(r, "derived_from_code", False)),
+                    "support_strength": getattr(r, "support_strength", None) or "weak",
+                }
+
+            return [row_to_dict(r) for r in out_rows]
+        except Exception as e:  # noqa: BLE001
+            logger.error("get_evidence_for_entity failed: %s", e)
             return []
 
     async def get_repository_monitoring(self, repository_url: str) -> Optional[dict]:

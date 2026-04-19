@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from analysis.ingestion.materialize import (
@@ -21,12 +21,14 @@ from analysis.civic_audit.endpoints import register_civic_audit_routes
 from analysis.ingestion.platforms import resolve_netlify_repo_url, resolve_render_repo_url
 from analysis.archaeology.history import entity_git_history_packet
 from analysis.archaeology.project_impact import shallow_transitive_dependents
+from analysis.archaeology.ids import stable_repo_id
 from analysis.archaeology.resolver import normalize_repo_relative_path, resolve_line_to_entity
 from analysis.archaeology.store import (
     get_entity_by_id as get_code_entity,
     get_relation_by_id,
     list_child_entities,
     list_relations_for_entity,
+    search_entities as search_code_entities,
 )
 from analysis.evidence import AnalysisEngine
 from models.db_models import EntityRelationRecord
@@ -385,12 +387,80 @@ async def resolve_location(body: ResolveRequest) -> Dict[str, Any]:
     }
 
 
+@analysis_router.get("/entities/search")
+async def entities_search(
+    q: str = Query(..., min_length=1, description="Substring on symbol, qualified name, or file path"),
+    repo_id: Optional[str] = Query(None, description="Stable repo id (with commit_sha); or pass analysis_id"),
+    commit_sha: Optional[str] = Query(None, description="Git commit for the persisted archaeology snapshot"),
+    analysis_id: Optional[str] = Query(
+        None,
+        description="Analysis id from /analyze; resolves repo scope via stored repository_url + commit_hash",
+    ),
+    entity_kind: Optional[str] = Query(
+        None, description="Optional filter: module, class, function, method, ..."
+    ),
+    limit: int = Query(50, ge=1, le=200),
+) -> Dict[str, Any]:
+    """Discover code entities without file/line — complements /resolve and evidence search."""
+    if analysis_id:
+        scope = await persistence_service.get_analysis_repo_identity(analysis_id)
+        if not scope:
+            raise HTTPException(status_code=404, detail="analysis not found")
+        repo_url, ch = scope
+        rid = stable_repo_id(repo_url)
+        sha = ch
+        aid_out: Optional[str] = analysis_id
+    elif repo_id and commit_sha:
+        rid, sha = repo_id.strip(), commit_sha.strip()
+        aid_out = None
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide analysis_id or both repo_id and commit_sha",
+        )
+
+    rows = await search_code_entities(
+        repo_id=rid,
+        commit_sha=sha,
+        query=q,
+        entity_kind=entity_kind,
+        limit=limit,
+    )
+    return {
+        "analysis_id": aid_out,
+        "repo_id": rid,
+        "commit_sha": sha,
+        "query": q.strip(),
+        "entity_kind_filter": entity_kind,
+        "count": len(rows),
+        "entities": [
+            {
+                "entity_id": e.entity_id,
+                "entity_kind": e.entity_kind,
+                "symbol_name": e.symbol_name,
+                "qualified_name": e.qualified_name,
+                "file_path": e.file_path,
+                "line_span": {"start_line": e.start_line, "end_line": e.end_line},
+            }
+            for e in rows
+        ],
+    }
+
+
 @analysis_router.get("/entity/{entity_id}/identify")
 async def entity_identify(entity_id: str) -> Dict[str, Any]:
     row = await get_code_entity(entity_id)
     if not row:
         raise HTTPException(status_code=404, detail="entity not found")
     children = await list_child_entities(entity_id)
+    snippet: str | None = None
+    snippet_truncated = False
+    if row.raw_content:
+        if len(row.raw_content) > 2000:
+            snippet = row.raw_content[:2000] + "…"
+            snippet_truncated = True
+        else:
+            snippet = row.raw_content
     return {
         "repo_id": row.repo_id,
         "commit_sha": row.commit_sha,
@@ -400,6 +470,12 @@ async def entity_identify(entity_id: str) -> Dict[str, Any]:
         "qualified_name": row.qualified_name,
         "file_path": row.file_path,
         "line_span": {"start_line": row.start_line, "end_line": row.end_line},
+        "source_context": {
+            "file_path": row.file_path,
+            "line_span": {"start_line": row.start_line, "end_line": row.end_line},
+            "snippet": snippet,
+            "snippet_truncated": snippet_truncated,
+        },
         "hashes": {
             "content_hash": row.content_hash,
             "signature_hash": row.signature_hash,
@@ -422,6 +498,25 @@ async def entity_identify(entity_id: str) -> Dict[str, Any]:
             for c in children[:50]
         ],
         "analysis_confidence": row.analysis_confidence,
+    }
+
+
+@analysis_router.get("/entity/{entity_id}/evidence")
+async def entity_evidence(
+    entity_id: str,
+    analysis_id: str = Query(..., description="Analysis id from the same run as this entity index"),
+) -> Dict[str, Any]:
+    row = await get_code_entity(entity_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="entity not found")
+    items = await persistence_service.get_evidence_for_entity(
+        analysis_id, entity_id, limit=120
+    )
+    return {
+        "entity_id": entity_id,
+        "analysis_id": analysis_id,
+        "count": len(items),
+        "items": items,
     }
 
 
@@ -485,6 +580,7 @@ async def entity_trace(entity_id: str) -> Dict[str, Any]:
         "graph_confidence_summary": {
             "calls_static": True,
             "note": "Dynamic dispatch and indirect calls are not modeled; empty lists may not imply absence.",
+            "relation_inspect": "Each edge includes relation_id; use GET /api/analysis/relation/{relation_id} (optional: analysis_id for linked evidence).",
         },
     }
 
@@ -578,6 +674,16 @@ async def entity_interpret(entity_id: str, repo_path: Optional[str] = None) -> D
     if not documented_intent and not observed:
         gaps.append("No clear design rationale found in available git history.")
 
+    history_notes: list[str] = []
+    if history_precision == "line":
+        history_notes.append(
+            "History is line-scoped (git log -L): commits are intended to touch this span; still interpret causation cautiously."
+        )
+    elif history_precision == "file":
+        history_notes.append(
+            "History is file-scoped only: commits may not have edited these exact lines; do not treat as line-provenance."
+        )
+
     return {
         "repo_id": row.repo_id,
         "commit_sha": row.commit_sha,
@@ -589,6 +695,7 @@ async def entity_interpret(entity_id: str, repo_path: Optional[str] = None) -> D
         "documented_intent": documented_intent,
         "observed_evolution": observed,
         "history_precision": history_precision,
+        "history_notes": history_notes,
         "architectural_inference": arch_inf,
         "archaeological_gaps": gaps,
     }
