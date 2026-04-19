@@ -17,7 +17,7 @@ from models.db_models import (
     MechanismRecord,
     RepositoryMonitorRecord,
 )
-from models.evidence import AnalysisEvidence
+from models.evidence import AnalysisEvidence, provenance_label_for_source_class, source_class_rank
 from models.orm_converters import orm_to_pydantic, pydantic_to_orm
 
 logger = logging.getLogger(__name__)
@@ -87,6 +87,16 @@ class EvidencePersistenceService:
                     "boundary_note": er.boundary_note,
                     "timestamp": er.timestamp.isoformat(),
                     "last_verified": er.last_verified.isoformat(),
+                    "source_class": getattr(er, "source_class", None) or "keyword_heuristic",
+                    "linked_entity_ids": getattr(er, "linked_entity_ids", None) or [],
+                    "linked_relation_ids": getattr(er, "linked_relation_ids", None) or [],
+                    "support_strength": getattr(er, "support_strength", None) or "weak",
+                    "derived_from_doc": bool(getattr(er, "derived_from_doc", False)),
+                    "derived_from_code": bool(getattr(er, "derived_from_code", False)),
+                    "provenance_label": provenance_label_for_source_class(
+                        getattr(er, "source_class", None) or "keyword_heuristic"
+                    ),
+                    "refinement_signal": getattr(er, "refinement_signal", None),
                 }
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to retrieve evidence %s: %s", evidence_id, e)
@@ -154,11 +164,14 @@ class EvidencePersistenceService:
                 stmt = select(EvidenceRecord).where(EvidenceRecord.claim.contains(query))
                 if analysis_id:
                     stmt = stmt.where(EvidenceRecord.analysis_id == analysis_id)
-                stmt = stmt.order_by(EvidenceRecord.timestamp.desc()).limit(limit)
+                # Fetch more than limit so source-aware ranking can promote code before docs
+                stmt = stmt.order_by(EvidenceRecord.timestamp.desc()).limit(max(limit * 8, 200))
                 result = await session.execute(stmt)
-                rows = result.scalars().all()
-                return [
-                    {
+                rows = list(result.scalars().all())
+
+                def row_to_dict(r: EvidenceRecord) -> dict:
+                    sc = getattr(r, "source_class", None) or "keyword_heuristic"
+                    return {
                         "id": r.id,
                         "analysis_id": r.analysis_id,
                         "claim": r.claim,
@@ -168,9 +181,19 @@ class EvidencePersistenceService:
                         "analysis_stage": r.analysis_stage,
                         "timestamp": r.timestamp.isoformat(),
                         "source_locations": (r.source_locations or [])[:3],
+                        "source_class": sc,
+                        "linked_entity_ids": (getattr(r, "linked_entity_ids", None) or [])[:20],
+                        "linked_relation_ids": (getattr(r, "linked_relation_ids", None) or [])[:20],
+                        "support_strength": getattr(r, "support_strength", None) or "weak",
+                        "derived_from_doc": bool(getattr(r, "derived_from_doc", False)),
+                        "derived_from_code": bool(getattr(r, "derived_from_code", False)),
+                        "provenance_label": provenance_label_for_source_class(sc),
                     }
-                    for r in rows
-                ]
+
+                decorated = [(source_class_rank(getattr(r, "source_class", None)), -r.timestamp.timestamp(), r) for r in rows]
+                decorated.sort(key=lambda t: (t[0], t[1]))
+                ranked = [t[2] for t in decorated]
+                return [row_to_dict(r) for r in ranked[:limit]]
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to search evidence: %s", e)
             return []
@@ -282,6 +305,22 @@ class EvidencePersistenceService:
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to get analysis summary: %s", e)
             return None
+
+    async def find_evidence_ids_for_relation(self, analysis_id: str, relation_id: str) -> list[str]:
+        """Evidence rows that reference this relation_id in linked_relation_ids."""
+        try:
+            async with get_session() as session:
+                stmt = select(EvidenceRecord).where(EvidenceRecord.analysis_id == analysis_id)
+                rows = list((await session.execute(stmt)).scalars().all())
+            out: list[str] = []
+            for r in rows:
+                lids = getattr(r, "linked_relation_ids", None) or []
+                if relation_id in lids:
+                    out.append(r.id)
+            return out
+        except Exception as e:  # noqa: BLE001
+            logger.error("find_evidence_ids_for_relation failed: %s", e)
+            return []
 
 
 persistence_service = EvidencePersistenceService()

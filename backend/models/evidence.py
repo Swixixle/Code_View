@@ -10,6 +10,50 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 import uuid
 
+# Archaeological provenance: search/ranking uses rank (lower = stronger).
+SOURCE_CLASS_CODE_DEFINITION = "code_definition"
+SOURCE_CLASS_CODE_RELATION = "code_relation"
+SOURCE_CLASS_CODE_USAGE = "code_usage"
+SOURCE_CLASS_GIT_HISTORY = "git_history"
+SOURCE_CLASS_TEST_REFERENCE = "test_reference"
+SOURCE_CLASS_CONFIGURATION_REFERENCE = "configuration_reference"
+SOURCE_CLASS_DOCUMENTATION_CLAIM = "documentation_claim"
+SOURCE_CLASS_KEYWORD_HEURISTIC = "keyword_heuristic"
+
+SOURCE_CLASS_RANK: dict[str, int] = {
+    SOURCE_CLASS_CODE_DEFINITION: 1,
+    SOURCE_CLASS_CODE_RELATION: 2,
+    SOURCE_CLASS_CODE_USAGE: 3,
+    SOURCE_CLASS_GIT_HISTORY: 4,
+    SOURCE_CLASS_TEST_REFERENCE: 5,
+    SOURCE_CLASS_CONFIGURATION_REFERENCE: 6,
+    SOURCE_CLASS_DOCUMENTATION_CLAIM: 7,
+    SOURCE_CLASS_KEYWORD_HEURISTIC: 8,
+}
+
+PROVENANCE_LABELS: dict[str, str] = {
+    SOURCE_CLASS_CODE_DEFINITION: "code definition",
+    SOURCE_CLASS_CODE_RELATION: "code relation (static graph)",
+    SOURCE_CLASS_CODE_USAGE: "code usage / call pattern",
+    SOURCE_CLASS_GIT_HISTORY: "git history",
+    SOURCE_CLASS_TEST_REFERENCE: "test reference",
+    SOURCE_CLASS_CONFIGURATION_REFERENCE: "configuration reference",
+    SOURCE_CLASS_DOCUMENTATION_CLAIM: "documentation claim",
+    SOURCE_CLASS_KEYWORD_HEURISTIC: "keyword heuristic",
+}
+
+
+def source_class_rank(source_class: str | None) -> int:
+    if not source_class:
+        return 99
+    return SOURCE_CLASS_RANK.get(source_class, 99)
+
+
+def provenance_label_for_source_class(source_class: str | None) -> str:
+    if not source_class:
+        return PROVENANCE_LABELS[SOURCE_CLASS_KEYWORD_HEURISTIC]
+    return PROVENANCE_LABELS.get(source_class, source_class.replace("_", " "))
+
 
 class EvidenceType(str, Enum):
     EXTRACTED = "extracted"
@@ -70,11 +114,24 @@ class EvidenceItem(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
     last_verified: datetime = Field(default_factory=datetime.now)
 
-    # Pattern vs implementation (set during evidence refinement; optional for backward compatibility)
+       # Pattern vs implementation (set during evidence refinement; optional for backward compatibility)
     refinement_signal: Optional[str] = Field(
         default=None,
-        description="verified_implementation | likely_implementation | detected_pattern | uncertain",
+        description="verified_implementation | likely_implementation | detected_pattern | uncertain | doc_only_claim | doc_entity_linked",
     )
+
+    source_class: str = Field(
+        default=SOURCE_CLASS_KEYWORD_HEURISTIC,
+        description="Provenance tier for ranking (code_* before documentation_claim).",
+    )
+    linked_entity_ids: List[str] = Field(default_factory=list)
+    linked_relation_ids: List[str] = Field(default_factory=list)
+    support_strength: str = Field(
+        default="weak",
+        description="weak | moderate | strong — separate from ConfidenceLevel; code-backed facts may be moderate/strong.",
+    )
+    derived_from_doc: bool = False
+    derived_from_code: bool = False
 
     depends_on: List[str] = Field(default_factory=list)
     supports: List[str] = Field(default_factory=list)
@@ -253,6 +310,10 @@ def create_evidence_from_source(
         ],
         reasoning_chain=reasoning or [f"Found {symbol_type} '{symbol_name}' in {file_path}"],
         analysis_stage="symbol_extraction",
+        source_class=SOURCE_CLASS_CODE_DEFINITION,
+        derived_from_code=True,
+        derived_from_doc=False,
+        support_strength="strong",
     )
 
 

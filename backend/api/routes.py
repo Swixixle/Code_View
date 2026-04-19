@@ -19,11 +19,15 @@ from analysis.ingestion.materialize import (
 from analysis.ingestion.pipeline import AnalysisPipelineResult, run_analysis_pipeline
 from analysis.civic_audit.endpoints import register_civic_audit_routes
 from analysis.ingestion.platforms import resolve_netlify_repo_url, resolve_render_repo_url
-from analysis.archaeology.history import git_file_history, git_log_line_range
+from analysis.archaeology.history import entity_git_history_packet
 from analysis.archaeology.project_impact import shallow_transitive_dependents
 from analysis.archaeology.resolver import normalize_repo_relative_path, resolve_line_to_entity
-from analysis.archaeology.store import list_child_entities, list_relations_for_entity
-from analysis.archaeology.store import get_entity_by_id as get_code_entity
+from analysis.archaeology.store import (
+    get_entity_by_id as get_code_entity,
+    get_relation_by_id,
+    list_child_entities,
+    list_relations_for_entity,
+)
 from analysis.evidence import AnalysisEngine
 from models.db_models import EntityRelationRecord
 from persistence.service import persistence_service
@@ -430,21 +434,41 @@ async def entity_trace(entity_id: str) -> Dict[str, Any]:
         entity_id, repo_id=row.repo_id, commit_sha=row.commit_sha, direction="both"
     )
 
-    def pack(rel: EntityRelationRecord, direction: str) -> Dict[str, Any]:
+    async def pack(rel: EntityRelationRecord, direction: str) -> Dict[str, Any]:
         other_id = rel.target_entity_id if direction == "out" else rel.source_entity_id
-        return {
+        peer = await get_code_entity(other_id)
+        src_id = entity_id if direction == "out" else other_id
+        tgt_id = other_id if direction == "out" else entity_id
+        base: Dict[str, Any] = {
             "relation_id": rel.relation_id,
+            "source_entity_id": src_id,
+            "target_entity_id": tgt_id,
+            "source_class": "code_relation",
+            "provenance_label": "code relation (static graph)",
             "direction": direction,
             "relation_type": rel.relation_type,
             "confidence": rel.confidence,
             "peer_entity_id": other_id,
             "evidence": rel.evidence_json,
         }
+        if peer:
+            base["peer_qualified_name"] = peer.qualified_name
+            base["peer_symbol_name"] = peer.symbol_name
+            base["peer_file_path"] = peer.file_path
+            base["peer_line_span"] = {"start_line": peer.start_line, "end_line": peer.end_line}
+        else:
+            base["peer_qualified_name"] = None
+            base["peer_symbol_name"] = None
+            base["peer_file_path"] = None
+            base["peer_line_span"] = None
+        return base
 
-    callers = [pack(r, "in") for r in inc if r.relation_type == "calls"]
-    callees = [pack(r, "out") for r in out if r.relation_type == "calls"]
-    imports_out = [pack(r, "out") for r in out if r.relation_type == "imports"]
-    imported_by = [pack(r, "in") for r in inc if r.relation_type == "imports"]
+    callers = [await pack(r, "in") for r in inc if r.relation_type == "calls"]
+    callees = [await pack(r, "out") for r in out if r.relation_type == "calls"]
+    imports_out = [await pack(r, "out") for r in out if r.relation_type == "imports"]
+    imported_by = [await pack(r, "in") for r in inc if r.relation_type == "imports"]
+    contains = [await pack(r, "out") for r in out if r.relation_type == "contains"]
+    contained_by = [await pack(r, "in") for r in inc if r.relation_type == "contains"]
 
     return {
         "repo_id": row.repo_id,
@@ -454,12 +478,57 @@ async def entity_trace(entity_id: str) -> Dict[str, Any]:
         "callees": callees,
         "imports": imports_out,
         "imported_by": imported_by,
+        "contains": contains,
+        "contained_by": contained_by,
         "called_by": callers,
         "side_effect_hints": [],
         "graph_confidence_summary": {
             "calls_static": True,
             "note": "Dynamic dispatch and indirect calls are not modeled; empty lists may not imply absence.",
         },
+    }
+
+
+@analysis_router.get("/relation/{relation_id}")
+async def get_relation_detail(
+    relation_id: str, analysis_id: Optional[str] = None
+) -> Dict[str, Any]:
+    rel = await get_relation_by_id(relation_id)
+    if not rel:
+        raise HTTPException(status_code=404, detail="relation not found")
+
+    src = await get_code_entity(rel.source_entity_id)
+    tgt = await get_code_entity(rel.target_entity_id)
+
+    def summarize(ent: Any) -> Optional[Dict[str, Any]]:
+        if not ent:
+            return None
+        return {
+            "entity_id": ent.entity_id,
+            "qualified_name": ent.qualified_name,
+            "symbol_name": ent.symbol_name,
+            "file_path": ent.file_path,
+            "line_span": {"start_line": ent.start_line, "end_line": ent.end_line},
+        }
+
+    linked_evidence_ids: list[str] = []
+    if analysis_id:
+        linked_evidence_ids = await persistence_service.find_evidence_ids_for_relation(
+            analysis_id, relation_id
+        )
+
+    return {
+        "relation_id": rel.relation_id,
+        "relation_type": rel.relation_type,
+        "confidence": rel.confidence,
+        "evidence_json": rel.evidence_json,
+        "repo_id": rel.repo_id,
+        "commit_sha": rel.commit_sha,
+        "source_entity": summarize(src),
+        "target_entity": summarize(tgt),
+        "source_class": "code_relation",
+        "provenance_label": "code relation (static graph)",
+        "linked_evidence_ids": linked_evidence_ids,
     }
 
 
@@ -475,6 +544,9 @@ async def entity_interpret(entity_id: str, repo_path: Optional[str] = None) -> D
             {
                 "text": row.docstring,
                 "source": "docstring",
+                "entity_id": entity_id,
+                "qualified_name": row.qualified_name,
+                "symbol_name": row.symbol_name,
                 "file_path": row.file_path,
                 "line_span": {"start_line": row.start_line, "end_line": row.end_line},
             }
@@ -484,23 +556,24 @@ async def entity_interpret(entity_id: str, repo_path: Optional[str] = None) -> D
     gaps: list[str] = []
     arch_inf: list[dict] = []
 
+    history_precision: str | None = None
     rp = Path(repo_path).expanduser().resolve() if repo_path else None
     if rp and rp.is_dir():
         rel = normalize_repo_relative_path(row.file_path)
-        observed.extend(
-            await git_log_line_range(
-                rp, rel_file=rel, start_line=row.start_line, end_line=row.end_line
-            )
+        packet, history_precision = await entity_git_history_packet(
+            rp,
+            rel_file=rel,
+            start_line=row.start_line,
+            end_line=row.end_line,
         )
-        if not observed:
-            observed.extend(await git_file_history(rp, rel_file=rel))
+        observed.extend(packet)
     else:
         gaps.append(
-            "No local repo_path provided; git log/blame not run. Pass ?repo_path=/abs/path for history-backed interpret."
+            "No local repo_path provided; git log not run. Pass ?repo_path=/abs/path for history-backed interpret."
         )
 
-    if not observed and rp:
-        gaps.append("No commits returned for this line range (thin history or non-git folder).")
+    if not observed and rp and (rp / ".git").exists():
+        gaps.append("No commits returned for this file or line range (empty history or unreadable git state).")
 
     if not documented_intent and not observed:
         gaps.append("No clear design rationale found in available git history.")
@@ -509,10 +582,13 @@ async def entity_interpret(entity_id: str, repo_path: Optional[str] = None) -> D
         "repo_id": row.repo_id,
         "commit_sha": row.commit_sha,
         "entity_id": entity_id,
+        "qualified_name": row.qualified_name,
+        "symbol_name": row.symbol_name,
         "file_path": row.file_path,
         "line_span": {"start_line": row.start_line, "end_line": row.end_line},
         "documented_intent": documented_intent,
         "observed_evolution": observed,
+        "history_precision": history_precision,
         "architectural_inference": arch_inf,
         "archaeological_gaps": gaps,
     }
@@ -595,6 +671,7 @@ async def search_evidence(
         "count": len(items),
         "query": query,
         "analysis_filter": analysis_id,
+        "ranked_by": ["source_class_priority", "recency_tiebreak_within_tier"],
     }
 
 

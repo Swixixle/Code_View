@@ -41,6 +41,21 @@ class PatternVerificationClassifier:
         classified: List[EvidenceItem] = []
 
         for item in evidence_items:
+            # Documentation is never upgraded to verified_implementation by keyword scoring.
+            if getattr(item, "source_class", None) == "documentation_claim":
+                if item.refinement_signal not in ("doc_entity_linked",):
+                    item.refinement_signal = item.refinement_signal or "doc_only_claim"
+                classified.append(item)
+                continue
+
+            if getattr(item, "source_class", None) == "git_history":
+                classified.append(item)
+                continue
+
+            if getattr(item, "source_class", None) == "code_relation":
+                classified.append(item)
+                continue
+
             info = self._classify_single_item(item)
             signal = info["signal"]
             item.refinement_signal = signal

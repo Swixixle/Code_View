@@ -8,6 +8,9 @@ from typing import Any, Dict, Optional
 
 from analysis.archaeology.ids import stable_repo_id
 from analysis.archaeology.service import ingest_repository
+from analysis.archaeology.git_history_evidence import emit_git_history_evidence
+from analysis.archaeology.relation_evidence import emit_relation_evidence
+from analysis.doc_entity_linkage import apply_doc_claim_entity_links
 from analysis.evidence import AnalysisEngine
 from models.evidence import AnalysisEvidence
 from persistence.service import persistence_service
@@ -41,6 +44,14 @@ async def run_analysis_pipeline(
     archaeology: Dict[str, Any] | None = None
     if run_archaeology and result.commit_hash not in ("unknown", ""):
         archaeology = await ingest_repository(repo_path, repo_id=repo_id, commit_sha=result.commit_hash)
+        await apply_doc_claim_entity_links(result, repo_id=repo_id, commit_sha=result.commit_hash)
+        await emit_git_history_evidence(
+            result,
+            repo_path=repo_path,
+            repo_id=repo_id,
+            commit_sha=result.commit_hash,
+        )
+        await emit_relation_evidence(result, repo_id=repo_id, commit_sha=result.commit_hash)
     else:
         archaeology = {
             "skipped": True,

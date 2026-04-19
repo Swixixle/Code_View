@@ -127,6 +127,14 @@ async def get_entity_by_id(entity_id: str) -> CodeEntityRecord | None:
         return r.scalar_one_or_none()
 
 
+async def get_relation_by_id(relation_id: str) -> EntityRelationRecord | None:
+    async with get_session() as session:
+        r = await session.execute(
+            select(EntityRelationRecord).where(EntityRelationRecord.relation_id == relation_id)
+        )
+        return r.scalar_one_or_none()
+
+
 async def list_child_entities(parent_entity_id: str) -> list[CodeEntityRecord]:
     async with get_session() as session:
         r = await session.execute(
