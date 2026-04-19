@@ -85,6 +85,12 @@ def pydantic_to_orm(analysis_evidence: AnalysisEvidence, session: AsyncSession) 
                 refinement_signal=evidence_item.refinement_signal,
                 timestamp=evidence_item.timestamp,
                 last_verified=evidence_item.last_verified,
+                source_class=evidence_item.source_class,
+                linked_entity_ids=list(evidence_item.linked_entity_ids or []),
+                linked_relation_ids=list(evidence_item.linked_relation_ids or []),
+                support_strength=evidence_item.support_strength,
+                derived_from_doc=evidence_item.derived_from_doc,
+                derived_from_code=evidence_item.derived_from_code,
             )
         )
 
@@ -197,6 +203,12 @@ def orm_to_pydantic(analysis_record: AnalysisRecord) -> AnalysisEvidence:
                 refinement_signal=getattr(er, "refinement_signal", None),
                 timestamp=er.timestamp,
                 last_verified=er.last_verified,
+                source_class=getattr(er, "source_class", None) or "keyword_heuristic",
+                linked_entity_ids=list(getattr(er, "linked_entity_ids", None) or []),
+                linked_relation_ids=list(getattr(er, "linked_relation_ids", None) or []),
+                support_strength=getattr(er, "support_strength", None) or "weak",
+                derived_from_doc=bool(getattr(er, "derived_from_doc", False)),
+                derived_from_code=bool(getattr(er, "derived_from_code", False)),
             )
         )
 
@@ -287,4 +299,5 @@ def orm_to_pydantic(analysis_record: AnalysisRecord) -> AnalysisEvidence:
         coverage_percentage=analysis_record.coverage_percentage,
         monitoring_enabled=analysis_record.monitoring_enabled,
         next_check=analysis_record.next_check,
+        refinement_metadata=analysis_record.refinement_metadata,
     )

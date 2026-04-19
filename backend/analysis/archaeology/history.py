@@ -76,7 +76,7 @@ async def git_log_line_range(
         "log",
         f"-n{max_commits}",
         f"-L{start_line},{end_line}:{rel_file}",
-        "--format=%H%x09%s",
+        "--format=%H\t%an\t%ai\t%s",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -86,10 +86,19 @@ async def git_log_line_range(
         return []
     out: list[dict] = []
     for ln in stdout.decode(errors="replace").splitlines():
-        if "\t" not in ln:
+        parts = ln.split("\t", 3)
+        if len(parts) < 4:
             continue
-        sha, subj = ln.split("\t", 1)
-        out.append({"commit_sha": sha.strip(), "subject": subj.strip(), "source": "git_log_line_range"})
+        sha, author, authored_at, subj = parts[0], parts[1], parts[2], parts[3]
+        out.append(
+            {
+                "commit_sha": sha.strip(),
+                "author": author.strip(),
+                "authored_at": authored_at.strip(),
+                "subject": subj.strip(),
+                "source": "git_log_line_range",
+            }
+        )
     return out
 
 
@@ -129,3 +138,86 @@ async def git_file_history(
             }
         )
     return out
+
+
+def _tag_git_packet_entries(entries: list[dict], *, precision: str) -> None:
+    """Mutate commit dicts with provenance fields for API / evidence alignment."""
+    for d in entries:
+        d["source_class"] = "git_history"
+        d["provenance_label"] = "git history"
+        d["derived_from_code"] = True
+        d["derived_from_doc"] = False
+        d["history_precision"] = precision
+
+
+async def git_file_history_detailed(
+    repo_path: Path,
+    *,
+    rel_file: str,
+    max_commits: int = 12,
+) -> list[dict]:
+    """File-level log with author and date (best-effort; tabs in subject are rare)."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "-C",
+        str(repo_path),
+        "log",
+        f"-n{max_commits}",
+        "--format=%H\t%an\t%ai\t%s",
+        "--",
+        rel_file,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.warning("git log (detailed) failed: %s", stderr.decode()[:200])
+        return []
+
+    out: list[dict] = []
+    for ln in stdout.decode(errors="replace").splitlines():
+        parts = ln.split("\t", 3)
+        if len(parts) < 4:
+            continue
+        sha, author, authored_at, subject = parts[0], parts[1], parts[2], parts[3]
+        out.append(
+            {
+                "commit_sha": sha.strip(),
+                "author": author.strip(),
+                "authored_at": authored_at.strip(),
+                "subject": subject.strip(),
+                "source": "git_log_file",
+            }
+        )
+    return out
+
+
+async def entity_git_history_packet(
+    repo_path: Path,
+    *,
+    rel_file: str,
+    start_line: int,
+    end_line: int,
+    max_commits: int = 12,
+) -> tuple[list[dict], str]:
+    """
+    Line-level log when `git log -L` works; otherwise file-level detailed log.
+    Returns (annotated entries, precision) where precision is 'line' or 'file'.
+    """
+    line_log = await git_log_line_range(
+        repo_path,
+        rel_file=rel_file,
+        start_line=start_line,
+        end_line=end_line,
+        max_commits=max_commits,
+    )
+    if line_log:
+        for d in line_log:
+            d.setdefault("author", "")
+            d.setdefault("authored_at", "")
+        _tag_git_packet_entries(line_log, precision="line")
+        return line_log, "line"
+
+    file_log = await git_file_history_detailed(repo_path, rel_file=rel_file, max_commits=max_commits)
+    _tag_git_packet_entries(file_log, precision="file")
+    return file_log, "file"

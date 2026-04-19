@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
 from models.evidence import (
+    SOURCE_CLASS_CODE_USAGE,
+    SOURCE_CLASS_KEYWORD_HEURISTIC,
     ConfidenceLevel,
     EvidenceItem,
     EvidenceStatus,
@@ -112,6 +114,8 @@ class EnhancedPythonParser(PythonASTParser):
                     source_locations=[SourceLocation(file_path=display_path, line_start=1)],
                     reasoning_chain=[f"Parsing error: {str(e)}"],
                     analysis_stage="enhanced_python_parsing",
+                    source_class=SOURCE_CLASS_KEYWORD_HEURISTIC,
+                    support_strength="weak",
                 )
             )
 
@@ -403,7 +407,11 @@ class EnhancedPythonParser(PythonASTParser):
                     f"Algorithms detected: {algorithms}" if algorithms else "Algorithm detection needed",
                     f"Libraries used: {list(set(f.library for f in signing_funcs))}"
                 ],
-                analysis_stage="cryptographic_analysis"
+                analysis_stage="cryptographic_analysis",
+                source_class=SOURCE_CLASS_CODE_USAGE,
+                derived_from_code=True,
+                derived_from_doc=False,
+                support_strength="strong",
             ))
         
         # Evidence for verification capabilities
@@ -428,7 +436,11 @@ class EnhancedPythonParser(PythonASTParser):
                     f"Found {len(verification_funcs)} verification functions",
                     "Signature verification ensures data integrity"
                 ],
-                analysis_stage="cryptographic_analysis"
+                analysis_stage="cryptographic_analysis",
+                source_class=SOURCE_CLASS_CODE_USAGE,
+                derived_from_code=True,
+                derived_from_doc=False,
+                support_strength="strong",
             ))
         
         return evidence_items
@@ -461,7 +473,11 @@ class EnhancedPythonParser(PythonASTParser):
                     f"Found {len(boundaries)} {boundary_type} boundaries",
                     "Security boundaries enforce trust assumptions"
                 ],
-                analysis_stage="security_analysis"
+                analysis_stage="security_analysis",
+                source_class=SOURCE_CLASS_CODE_USAGE,
+                derived_from_code=True,
+                derived_from_doc=False,
+                support_strength="moderate",
             ))
         
         return evidence_items
@@ -489,7 +505,11 @@ class EnhancedPythonParser(PythonASTParser):
                 f"Hash algorithms: {algorithms}",
                 "Hashing provides data integrity verification"
             ],
-            analysis_stage="cryptographic_analysis"
+            analysis_stage="cryptographic_analysis",
+            source_class=SOURCE_CLASS_CODE_USAGE,
+            derived_from_code=True,
+            derived_from_doc=False,
+            support_strength="strong",
         ))
         
         return evidence_items
@@ -521,7 +541,11 @@ class EnhancedPythonParser(PythonASTParser):
                     f"Signature algorithms: {algorithms}" if algorithms else "Algorithm detection needed",
                     "Digital signatures provide authenticity and non-repudiation"
                 ],
-                analysis_stage="cryptographic_analysis"
+                analysis_stage="cryptographic_analysis",
+                source_class=SOURCE_CLASS_CODE_USAGE,
+                derived_from_code=True,
+                derived_from_doc=False,
+                support_strength="moderate",
             ))
         
         return evidence_items
@@ -563,6 +587,8 @@ def parse_python_directory_enhanced(directory_path: Path) -> List[EvidenceItem]:
                     source_locations=[SourceLocation(file_path=disp, line_start=1)],
                     reasoning_chain=[f"Parse error: {str(e)}"],
                     analysis_stage="enhanced_python_parsing",
+                    source_class=SOURCE_CLASS_KEYWORD_HEURISTIC,
+                    support_strength="weak",
                 )
             )
 
@@ -581,6 +607,10 @@ def parse_python_directory_enhanced(directory_path: Path) -> List[EvidenceItem]:
                     "Enhanced pass includes cryptographic and security boundary heuristics",
                 ],
                 analysis_stage="python_ast_parsing",
+                source_class=SOURCE_CLASS_KEYWORD_HEURISTIC,
+                derived_from_code=True,
+                derived_from_doc=False,
+                support_strength="moderate",
             )
         )
 
@@ -604,6 +634,9 @@ def parse_python_directory_enhanced(directory_path: Path) -> List[EvidenceItem]:
                     "Review extracted symbols and claims for Ed25519, hashing, and auth boundaries",
                 ],
                 analysis_stage="cryptographic_summary",
+                source_class=SOURCE_CLASS_KEYWORD_HEURISTIC,
+                support_strength="weak",
+                boundary_note="Aggregate keyword/heuristic summary — not a substitute for code review",
             )
         )
 

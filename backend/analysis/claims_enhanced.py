@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import List
 
 from models.evidence import (
+    SOURCE_CLASS_DOCUMENTATION_CLAIM,
     ConfidenceLevel,
     EvidenceItem,
     EvidenceStatus,
@@ -18,6 +19,35 @@ from models.evidence import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _documentation_claim_item(
+    *,
+    claim: str,
+    file_path: str,
+    line_num: int,
+    reasoning_chain: list[str],
+    analysis_stage: str,
+    confidence: ConfidenceLevel = ConfidenceLevel.LOW,
+    boundary_note: str | None = None,
+) -> EvidenceItem:
+    """Markdown/README text — suggestive only until linked to code entities."""
+    return EvidenceItem(
+        claim=claim,
+        status=EvidenceStatus.UNKNOWN,
+        evidence_type=EvidenceType.EXTRACTED,
+        confidence=confidence,
+        source_locations=[SourceLocation(file_path=file_path, line_start=line_num)],
+        reasoning_chain=reasoning_chain,
+        analysis_stage=analysis_stage,
+        boundary_note=boundary_note
+        or "documentation_claim — text only; does not certify implementation without code linkage",
+        source_class=SOURCE_CLASS_DOCUMENTATION_CLAIM,
+        derived_from_doc=True,
+        derived_from_code=False,
+        support_strength="weak",
+        refinement_signal="doc_only_claim",
+    )
 
 
 class EnhancedClaimsExtractor:
@@ -112,18 +142,15 @@ class EnhancedClaimsExtractor:
                 match = re.search(pattern, line_lower)
                 if match:
                     capability = match.group(1).strip()
-                    confidence = self._assess_claim_confidence(capability)
+                    confidence = self._assess_doc_claim_confidence(capability)
                     claims.append(
-                        EvidenceItem(
-                            claim=f"System claims to {capability}",
-                            status=EvidenceStatus.UNKNOWN,
-                            evidence_type=EvidenceType.EXTRACTED,
-                            confidence=confidence,
-                            source_locations=[
-                                SourceLocation(file_path=file_path, line_start=line_num)
-                            ],
+                        _documentation_claim_item(
+                            claim=f"Documentation suggests capability: {capability}",
+                            file_path=file_path,
+                            line_num=line_num,
                             reasoning_chain=[f"Capability pattern in documentation: {line.strip()}"],
                             analysis_stage="enhanced_claims_extraction",
+                            confidence=confidence,
                         )
                     )
         return claims
@@ -136,22 +163,17 @@ class EnhancedClaimsExtractor:
                 if keyword in line_lower:
                     context = self._extract_keyword_context(line, keyword)
                     claims.append(
-                        EvidenceItem(
-                            claim=f"Cryptographic/security documentation: {context}",
-                            status=EvidenceStatus.UNKNOWN,
-                            evidence_type=EvidenceType.EXTRACTED,
-                            confidence=ConfidenceLevel.HIGH
-                            if info["weight"] >= 8
-                            else ConfidenceLevel.MEDIUM,
-                            source_locations=[
-                                SourceLocation(file_path=file_path, line_start=line_num)
-                            ],
+                        _documentation_claim_item(
+                            claim=f"Cryptographic/security language in docs (not code proof): {context}",
+                            file_path=file_path,
+                            line_num=line_num,
                             reasoning_chain=[
                                 f"Keyword category: {info['category']}",
                                 line.strip(),
                             ],
                             analysis_stage="cryptographic_claims_extraction",
-                            boundary_note=f"Trust boundary context: {info['category']}",
+                            confidence=ConfidenceLevel.LOW,
+                            boundary_note=f"Doc keyword only ({info['category']}); verify in source",
                         )
                     )
         return claims
@@ -163,19 +185,16 @@ class EnhancedClaimsExtractor:
             score = sum(1 for kw in self.evidence_keywords if kw in line_lower)
             if score >= 2:
                 claims.append(
-                    EvidenceItem(
-                        claim=f"Evidence-first language (heuristic): {line.strip()}",
-                        status=EvidenceStatus.UNKNOWN,
-                        evidence_type=EvidenceType.EXTRACTED,
-                        confidence=ConfidenceLevel.HIGH,
-                        source_locations=[
-                            SourceLocation(file_path=file_path, line_start=line_num)
-                        ],
+                    _documentation_claim_item(
+                        claim=f"Evidence-first language in docs (heuristic): {line.strip()}",
+                        file_path=file_path,
+                        line_num=line_num,
                         reasoning_chain=[
-                            f"Matched {score} evidence-related terms",
+                            f"Matched {score} evidence-related terms in prose",
                             line.strip(),
                         ],
                         analysis_stage="evidence_claims_extraction",
+                        confidence=ConfidenceLevel.LOW,
                     )
                 )
         return claims
@@ -187,19 +206,16 @@ class EnhancedClaimsExtractor:
             score = sum(1 for kw in self.credibility_keywords if kw in line_lower)
             if score >= 1:
                 claims.append(
-                    EvidenceItem(
-                        claim=f"Trust/credibility language: {line.strip()}",
-                        status=EvidenceStatus.UNKNOWN,
-                        evidence_type=EvidenceType.EXTRACTED,
-                        confidence=ConfidenceLevel.MEDIUM,
-                        source_locations=[
-                            SourceLocation(file_path=file_path, line_start=line_num)
-                        ],
+                    _documentation_claim_item(
+                        claim=f"Trust/credibility language in docs: {line.strip()}",
+                        file_path=file_path,
+                        line_num=line_num,
                         reasoning_chain=[
                             f"Credibility keyword hits: {score}",
                             line.strip(),
                         ],
                         analysis_stage="credibility_claims_extraction",
+                        confidence=ConfidenceLevel.LOW,
                     )
                 )
         return claims
@@ -220,29 +236,27 @@ class EnhancedClaimsExtractor:
             for feature, info in feature_patterns.items():
                 if feature in line_lower:
                     claims.append(
-                        EvidenceItem(
-                            claim=f"Feature mention: {feature}",
-                            status=EvidenceStatus.UNKNOWN,
-                            evidence_type=EvidenceType.EXTRACTED,
-                            confidence=info["confidence"],
-                            source_locations=[
-                                SourceLocation(file_path=file_path, line_start=line_num)
-                            ],
+                        _documentation_claim_item(
+                            claim=f"Feature mention in docs: {feature}",
+                            file_path=file_path,
+                            line_num=line_num,
                             reasoning_chain=[
                                 f"Category: {info['category']}",
                                 line.strip(),
                             ],
                             analysis_stage="feature_claims_extraction",
+                            confidence=ConfidenceLevel.LOW,
                         )
                     )
         return claims
 
-    def _assess_claim_confidence(self, capability: str) -> ConfidenceLevel:
+    def _assess_doc_claim_confidence(self, capability: str) -> ConfidenceLevel:
+        """Doc claims are never promoted to HIGH on keyword overlap alone."""
         cap = capability.lower()
         if any(k in cap for k in self.crypto_keywords):
-            return ConfidenceLevel.HIGH
-        if any(k in cap for k in self.evidence_keywords):
             return ConfidenceLevel.MEDIUM
+        if any(k in cap for k in self.evidence_keywords):
+            return ConfidenceLevel.LOW
         return ConfidenceLevel.LOW
 
     def _extract_keyword_context(self, line: str, keyword: str) -> str:

@@ -69,4 +69,18 @@ async def _migrate_sqlite_schema(conn) -> None:
                 text("ALTER TABLE evidence_items ADD COLUMN refinement_signal VARCHAR")
             )
 
+        cur = sync_conn.execute(text("PRAGMA table_info(evidence_items)"))
+        evidence_cols = {row[1] for row in cur.fetchall()}
+        _evidence_adds = [
+            ("source_class", "VARCHAR DEFAULT 'keyword_heuristic'"),
+            ("linked_entity_ids", "JSON"),
+            ("linked_relation_ids", "JSON"),
+            ("support_strength", "VARCHAR DEFAULT 'weak'"),
+            ("derived_from_doc", "BOOLEAN DEFAULT 0"),
+            ("derived_from_code", "BOOLEAN DEFAULT 0"),
+        ]
+        for col_name, col_decl in _evidence_adds:
+            if col_name not in evidence_cols:
+                sync_conn.execute(text(f"ALTER TABLE evidence_items ADD COLUMN {col_name} {col_decl}"))
+
     await conn.run_sync(_upgrade)

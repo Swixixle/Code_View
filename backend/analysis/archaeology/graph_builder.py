@@ -36,20 +36,57 @@ def _module_qual_from_rel(rel: str) -> str:
     return p.replace("/", ".")
 
 
-def _resolve_qual_name(
+def _module_level_import_aliases(tree: ast.AST, qns: set[str]) -> dict[str, str]:
+    """Map local name -> imported entity qualified name (module-level imports only)."""
+    aliases: dict[str, str] = {}
+    for n in getattr(tree, "body", []):
+        if isinstance(n, ast.ImportFrom):
+            base = n.module or ""
+            for alias in n.names:
+                if alias.name == "*" or not base:
+                    continue
+                local = alias.asname or alias.name
+                cand = f"{base}.{alias.name}"
+                if cand in qns:
+                    aliases[local] = cand
+        elif isinstance(n, ast.Import):
+            for alias in n.names:
+                pub = alias.name
+                askey = alias.asname or pub.split(".")[0]
+                if pub in qns:
+                    aliases[askey] = pub
+                else:
+                    parts = pub.split(".")
+                    for i in range(len(parts), 0, -1):
+                        cand = ".".join(parts[:i])
+                        if cand in qns:
+                            aliases[askey] = cand
+                            break
+    return aliases
+
+
+def _resolve_call_callee(
     name: str,
     *,
     module_qn: str,
     class_stack: list[str],
-    module_globals: set[str],
-) -> str | None:
+    qns: set[str],
+) -> tuple[str | None, str]:
+    """
+    Resolve a simple Name() call target. Prefer module-level symbol over class method
+    so `helper()` inside a method resolves to `module.helper` when that entity exists.
+    Returns (qualified_name_or_none, confidence).
+    """
     if name in ("True", "False", "None"):
-        return None
+        return None, "low"
+    mod_fn = f"{module_qn}.{name}"
+    if mod_fn in qns:
+        return mod_fn, "high"
     if class_stack:
-        return f"{class_stack[-1]}.{name}"
-    if name in module_globals:
-        return f"{module_qn}.{name}"
-    return None
+        cls_fn = f"{class_stack[-1]}.{name}"
+        if cls_fn in qns:
+            return cls_fn, "high"
+    return None, "low"
 
 
 class _CallVisitor(ast.NodeVisitor):
@@ -58,10 +95,14 @@ class _CallVisitor(ast.NodeVisitor):
         *,
         module_qn: str,
         module_globals: set[str],
+        qns: set[str],
+        import_aliases: dict[str, str],
         calls_out: list[tuple[str, str | None, str]],
     ) -> None:
         self.module_qn = module_qn
         self.module_globals = module_globals
+        self.qns = qns
+        self.import_aliases = import_aliases
         self.calls_out = calls_out
         self._class_stack: list[str] = []
         self._func_stack: list[str] = []
@@ -96,23 +137,138 @@ class _CallVisitor(ast.NodeVisitor):
         callee: str | None = None
         conf = "low"
         if isinstance(node.func, ast.Name):
-            callee = _resolve_qual_name(
+            callee, conf = _resolve_call_callee(
                 node.func.id,
                 module_qn=self.module_qn,
                 class_stack=self._class_stack,
-                module_globals=self.module_globals,
+                qns=self.qns,
             )
-            conf = "medium" if callee else "low"
+            if callee is None and node.func.id in self.import_aliases:
+                cand = self.import_aliases[node.func.id]
+                if cand in self.qns:
+                    callee = cand
+                    conf = "high"
+            if callee is None:
+                conf = "low"
         elif isinstance(node.func, ast.Attribute):
             if isinstance(node.func.value, ast.Name) and node.func.value.id in self.module_globals:
-                callee = f"{self.module_qn}.{node.func.value.id}.{node.func.attr}"
-                conf = "medium"
+                cand = f"{self.module_qn}.{node.func.value.id}.{node.func.attr}"
+                if cand in self.qns:
+                    callee = cand
+                    conf = "high"
+                else:
+                    callee = None
+                    conf = "low"
             else:
                 callee = None
                 conf = "low"
 
         self.calls_out.append((caller, callee, conf))
         self.generic_visit(node)
+
+
+class _ScopedImportVisitor(ast.NodeVisitor):
+    """Module- and nested-scope import -> target edges (entity-level source when resolvable)."""
+
+    def __init__(self, module_qn: str, qns: set[str], out: list[RelationDraft]) -> None:
+        self.module_qn = module_qn
+        self.qns = qns
+        self.out = out
+        self._scope_stack: list[str] = [module_qn]
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        fq = f"{self._scope_stack[-1]}.{node.name}"
+        self._scope_stack.append(fq)
+        self.generic_visit(node)
+        self._scope_stack.pop()
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        fq = f"{self._scope_stack[-1]}.{node.name}"
+        self._scope_stack.append(fq)
+        self.generic_visit(node)
+        self._scope_stack.pop()
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+        fq = f"{self._scope_stack[-1]}.{node.name}"
+        self._scope_stack.append(fq)
+        self.generic_visit(node)
+        self._scope_stack.pop()
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        src = self._scope_stack[-1]
+        if src not in self.qns:
+            return
+        scope_tag = "module" if src == self.module_qn else "nested"
+        for alias in node.names:
+            pub = alias.name
+            if pub in self.qns:
+                self.out.append(
+                    RelationDraft(
+                        source_qual=src,
+                        target_qual=pub,
+                        relation_type="imports",
+                        confidence="high",
+                        evidence={"kind": "import", "name": pub, "scope": scope_tag},
+                    )
+                )
+            else:
+                parts = pub.split(".")
+                for i in range(len(parts), 0, -1):
+                    cand = ".".join(parts[:i])
+                    if cand in self.qns:
+                        self.out.append(
+                            RelationDraft(
+                                source_qual=src,
+                                target_qual=cand,
+                                relation_type="imports",
+                                confidence="medium",
+                                evidence={"kind": "import_prefix", "name": pub, "scope": scope_tag},
+                            )
+                        )
+                        break
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        src = self._scope_stack[-1]
+        if src not in self.qns:
+            return
+        base = node.module or ""
+        scope_tag = "module" if src == self.module_qn else "nested"
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            if not base:
+                continue
+            cand = f"{base}.{alias.name}"
+            if cand in self.qns:
+                self.out.append(
+                    RelationDraft(
+                        source_qual=src,
+                        target_qual=cand,
+                        relation_type="imports",
+                        confidence="high",
+                        evidence={
+                            "kind": "from",
+                            "module": base,
+                            "name": alias.name,
+                            "scope": scope_tag,
+                        },
+                    )
+                )
+            elif base in self.qns:
+                self.out.append(
+                    RelationDraft(
+                        source_qual=src,
+                        target_qual=base,
+                        relation_type="imports",
+                        confidence="low",
+                        evidence={
+                            "kind": "from_pkg",
+                            "module": base,
+                            "name": alias.name,
+                            "scope": scope_tag,
+                        },
+                    )
+                )
 
 
 def collect_relations(
@@ -162,50 +318,29 @@ def collect_relations(
                     if isinstance(t, ast.Name):
                         globals_names.add(t.id)
 
-        def _maybe_import_edge(target_qn: str, confidence: str, extra: dict) -> None:
-            if target_qn not in qns:
-                return
-            drafts.append(
-                RelationDraft(
-                    source_qual=module_qn,
-                    target_qual=target_qn,
-                    relation_type="imports",
-                    confidence=confidence,
-                    evidence=extra,
-                )
-            )
-
         for n in tree.body:
             if isinstance(n, ast.Import):
                 for alias in n.names:
                     pub = alias.name
                     asname = alias.asname or pub.split(".")[0]
                     globals_names.add(asname)
-                    if pub in qns:
-                        _maybe_import_edge(pub, "high", {"kind": "import", "name": pub})
-                    else:
-                        parts = pub.split(".")
-                        for i in range(len(parts), 0, -1):
-                            cand = ".".join(parts[:i])
-                            if cand in qns:
-                                _maybe_import_edge(cand, "medium", {"kind": "import_prefix", "name": pub})
-                                break
             elif isinstance(n, ast.ImportFrom):
-                base = n.module or ""
                 for alias in n.names:
                     if alias.name == "*":
                         continue
                     globals_names.add(alias.asname or alias.name)
-                    if not base:
-                        continue
-                    cand = f"{base}.{alias.name}"
-                    if cand in qns:
-                        _maybe_import_edge(cand, "high", {"kind": "from", "module": base, "name": alias.name})
-                    elif base in qns:
-                        _maybe_import_edge(base, "low", {"kind": "from_pkg", "module": base, "name": alias.name})
 
+        _ScopedImportVisitor(module_qn, qns, drafts).visit(tree)
+
+        import_aliases = _module_level_import_aliases(tree, qns)
         calls_raw: list[tuple[str, str | None, str]] = []
-        cv = _CallVisitor(module_qn=module_qn, module_globals=globals_names, calls_out=calls_raw)
+        cv = _CallVisitor(
+            module_qn=module_qn,
+            module_globals=globals_names,
+            qns=qns,
+            import_aliases=import_aliases,
+            calls_out=calls_raw,
+        )
         cv.visit(tree)
 
         for caller, callee, conf in calls_raw:

@@ -311,6 +311,9 @@ class AnalysisEngine:
                         source_locations=[],
                         reasoning_chain=["Heuristic: doc claim without strong code name match"],
                         analysis_stage="contradiction_detection",
+                        source_class="keyword_heuristic",
+                        support_strength="weak",
+                        refinement_signal="weak_trace_confidence",
                     )
                 )
 
@@ -318,8 +321,12 @@ class AnalysisEngine:
                 status = EvidenceStatus.CONTRADICTED
                 confidence = 0.2
             elif supporting_evidence:
+                only_doc_support = all(
+                    getattr(e, "derived_from_doc", False) and not getattr(e, "derived_from_code", False)
+                    for e in supporting_evidence
+                )
                 status = EvidenceStatus.SUPPORTED
-                confidence = 0.8
+                confidence = 0.4 if only_doc_support else 0.8
             else:
                 status = EvidenceStatus.UNKNOWN
                 confidence = 0.5

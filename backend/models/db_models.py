@@ -75,6 +75,13 @@ class EvidenceRecord(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_verified: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    source_class: Mapped[str] = mapped_column(String, nullable=False, default="keyword_heuristic")
+    linked_entity_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    linked_relation_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    support_strength: Mapped[str] = mapped_column(String, nullable=False, default="weak")
+    derived_from_doc: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    derived_from_code: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     analysis: Mapped["AnalysisRecord"] = relationship(back_populates="evidence_items")
 
 

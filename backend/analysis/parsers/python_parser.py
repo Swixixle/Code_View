@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from models.evidence import (
+    SOURCE_CLASS_CODE_DEFINITION,
+    SOURCE_CLASS_CODE_RELATION,
+    SOURCE_CLASS_KEYWORD_HEURISTIC,
     ConfidenceLevel,
     EvidenceItem,
     EvidenceStatus,
@@ -108,6 +111,10 @@ class PythonASTParser:
                     ],
                     reasoning_chain=[f"Syntax error: {e.msg}"],
                     analysis_stage="python_ast_parsing",
+                    source_class=SOURCE_CLASS_CODE_DEFINITION,
+                    derived_from_code=True,
+                    derived_from_doc=False,
+                    support_strength="strong",
                 )
             ]
         except Exception as e:
@@ -120,6 +127,8 @@ class PythonASTParser:
                     source_locations=[SourceLocation(file_path=display_path, line_start=1)],
                     reasoning_chain=[f"Parsing error: {str(e)}"],
                     analysis_stage="python_ast_parsing",
+                    source_class=SOURCE_CLASS_KEYWORD_HEURISTIC,
+                    support_strength="weak",
                 )
             ]
 
@@ -303,6 +312,10 @@ class PythonASTParser:
                         f"{async_count} async functions detected" if async_count else "No async functions",
                     ],
                     analysis_stage="python_ast_parsing",
+                    source_class=SOURCE_CLASS_CODE_DEFINITION,
+                    derived_from_code=True,
+                    derived_from_doc=False,
+                    support_strength="strong",
                 )
             )
 
@@ -341,6 +354,10 @@ class PythonASTParser:
                                 "Docstring present" if func.docstring else "No docstring",
                             ],
                             analysis_stage="python_ast_parsing",
+                            source_class=SOURCE_CLASS_CODE_DEFINITION,
+                            derived_from_code=True,
+                            derived_from_doc=False,
+                            support_strength="strong",
                         )
                     )
 
@@ -369,6 +386,10 @@ class PythonASTParser:
                         f"Methods: {cls.methods}" if cls.methods else "No methods",
                     ],
                     analysis_stage="python_ast_parsing",
+                    source_class=SOURCE_CLASS_CODE_DEFINITION,
+                    derived_from_code=True,
+                    derived_from_doc=False,
+                    support_strength="strong",
                 )
             )
         return evidence_items
@@ -400,6 +421,10 @@ class PythonASTParser:
                         f"Route patterns: {[r.path for r in self.routes[:3]]}",
                     ],
                     analysis_stage="python_ast_parsing",
+                    source_class=SOURCE_CLASS_CODE_DEFINITION,
+                    derived_from_code=True,
+                    derived_from_doc=False,
+                    support_strength="strong",
                 )
             )
         return evidence_items
@@ -430,6 +455,10 @@ class PythonASTParser:
                     ],
                     reasoning_chain=[f"Import statements for {frameworks}"],
                     analysis_stage="python_ast_parsing",
+                    source_class=SOURCE_CLASS_CODE_RELATION,
+                    derived_from_code=True,
+                    derived_from_doc=False,
+                    support_strength="moderate",
                 )
             )
 
@@ -447,6 +476,10 @@ class PythonASTParser:
                     ],
                     reasoning_chain=[f"Security-related imports: {security_modules}"],
                     analysis_stage="python_ast_parsing",
+                    source_class=SOURCE_CLASS_CODE_RELATION,
+                    derived_from_code=True,
+                    derived_from_doc=False,
+                    support_strength="moderate",
                 )
             )
 
@@ -506,6 +539,8 @@ def parse_python_directory(directory_path: Path) -> List[EvidenceItem]:
                     source_locations=[SourceLocation(file_path=disp, line_start=1)],
                     reasoning_chain=[f"Parse error: {str(e)}"],
                     analysis_stage="python_ast_parsing",
+                    source_class=SOURCE_CLASS_KEYWORD_HEURISTIC,
+                    support_strength="weak",
                 )
             )
 
@@ -524,6 +559,10 @@ def parse_python_directory(directory_path: Path) -> List[EvidenceItem]:
                     "Excluded virtual environments and build directories",
                 ],
                 analysis_stage="python_ast_parsing",
+                source_class=SOURCE_CLASS_KEYWORD_HEURISTIC,
+                derived_from_code=True,
+                derived_from_doc=False,
+                support_strength="moderate",
             )
         )
 
