@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import delete, func, select
@@ -63,6 +64,86 @@ def _synthetic_code_definition_dict(ent: CodeEntityRecord) -> dict:
         "support_strength": "strong",
         "synthetic": True,
     }
+
+
+def _local_repo_root_for_analysis(repository_url: str) -> Path | None:
+    """Return a git checkout path if analysis was run against a local disk repo."""
+    raw = (repository_url or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("file://"):
+        from urllib.parse import unquote, urlparse
+
+        parsed = urlparse(raw)
+        path = unquote(parsed.path or "")
+        if parsed.netloc and len(path) > 2 and path[0] == "/" and path[2] == ":":
+            path = path.lstrip("/")
+        root = Path(path)
+    else:
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return None
+        root = Path(raw)
+    try:
+        root = root.expanduser().resolve()
+    except OSError:
+        return None
+    if root.is_dir() and (root / ".git").exists():
+        return root
+    return None
+
+
+def _synthetic_git_history_dicts(
+    ent: CodeEntityRecord, packet: list[dict], precision: str
+) -> list[dict]:
+    """One compact evidence row per packet commit, mirroring Interpret / git_history_extraction."""
+    out: list[dict] = []
+    for i, row in enumerate(packet):
+        sha_full = (row.get("commit_sha") or "").strip()
+        sha_short = sha_full[:7] if len(sha_full) >= 7 else sha_full or f"idx{i}"
+        subj = row.get("subject", "")
+        author = row.get("author", "?")
+        authored = row.get("authored_at", "")
+        src = row.get("source", "git")
+        claim = (
+            f"Git history ({precision}-level via {src}): {sha_short} — {subj!r} "
+            f"(author {author}, {authored}); span {ent.qualified_name} "
+            f"lines {ent.start_line}-{ent.end_line}"
+        )
+        eid = ent.entity_id
+        hid = f"_synthetic_git_history:{eid}:{sha_full or i}:{i}"
+        out.append(
+            {
+                "id": hid,
+                "claim": claim[:500] + ("…" if len(claim) > 500 else ""),
+                "claim_full_length": len(claim),
+                "status": "supported",
+                "confidence": "high",
+                "evidence_type": "observed",
+                "analysis_stage": "entity_git_history_synthetic",
+                "source_class": "git_history",
+                "provenance_label": provenance_label_for_source_class("git_history"),
+                "source_locations": [
+                    {
+                        "file_path": ent.file_path,
+                        "line_start": ent.start_line,
+                        "line_end": ent.end_line,
+                    }
+                ],
+                "linked_entity_ids": [eid],
+                "linked_relation_ids": [],
+                "refinement_signal": "git_observed",
+                "boundary_note": (
+                    "Synthesized from entity_git_history_packet for entity-scoped evidence; "
+                    "same commits as Interpret when the checkout path matches analysis."
+                ),
+                "derived_from_doc": False,
+                "derived_from_code": True,
+                "support_strength": "moderate",
+                "synthetic": True,
+                "history_precision": precision,
+            }
+        )
+    return out
 
 
 def _synthetic_code_relation_dict(
@@ -291,7 +372,7 @@ class EvidencePersistenceService:
     async def get_evidence_for_entity(
         self, analysis_id: str, entity_id: str, *, limit: int = 120
     ) -> list[dict]:
-        """Persisted evidence linked to entity, plus synthetic code anchors from the static graph."""
+        """Persisted evidence linked to entity, plus synthetic code/git anchors when gaps exist."""
         try:
             from analysis.archaeology.store import get_entity_by_id, list_relations_for_entity
 
@@ -392,6 +473,33 @@ class EvidencePersistenceService:
                 if not src or not tgt:
                     continue
                 synthetics.append(_synthetic_code_relation_dict(rel, src, tgt))
+
+            has_git_history_row = any(
+                getattr(r, "source_class", None) == "git_history" for r in matched
+            )
+            if not has_git_history_row:
+                scope = await self.get_analysis_repo_identity(analysis_id)
+                if scope:
+                    repo_url, _a_commit = scope
+                    root = _local_repo_root_for_analysis(repo_url)
+                    if root is not None:
+                        from analysis.archaeology.history import entity_git_history_packet
+                        from analysis.archaeology.resolver import normalize_repo_relative_path
+
+                        rel_norm = normalize_repo_relative_path(ent.file_path)
+                        try:
+                            packet, prec = await entity_git_history_packet(
+                                root,
+                                rel_file=rel_norm,
+                                start_line=ent.start_line,
+                                end_line=ent.end_line,
+                                max_commits=12,
+                            )
+                        except Exception as git_exc:  # noqa: BLE001
+                            logger.debug("entity_git_history_packet skipped: %s", git_exc)
+                            packet, prec = [], "none"
+                        if packet:
+                            synthetics.extend(_synthetic_git_history_dicts(ent, packet, prec))
 
             combined = [row_to_dict(r) for r in matched] + synthetics
             combined.sort(key=lambda d: (source_class_rank(d.get("source_class")), d.get("id", "")))

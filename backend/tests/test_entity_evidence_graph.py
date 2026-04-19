@@ -27,6 +27,11 @@ def _git_commit(repo: Path, message: str) -> None:
     subprocess.run(["git", "commit", "-m", message], cwd=repo, check=True, capture_output=True)
 
 
+def _git_commit_all(repo: Path, message: str) -> None:
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", message], cwd=repo, check=True, capture_output=True)
+
+
 @pytest.mark.skipif(
     subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
     reason="git not installed",
@@ -108,11 +113,96 @@ def test_entity_evidence_lists_code_before_documentation(tmp_path: Path) -> None
 
         assert idx_code_def < 999, "expected code_definition (persisted or synthetic anchor)"
         assert idx_code_rel < 999, "expected code_relation for caller/callee edge"
-        assert min(idx_code_def, idx_code_rel, idx_git) < idx_doc, (
-            "code/git evidence should rank before documentation_claim"
-        )
+        assert idx_git < 999, "expected git_history in entity evidence when repo has commits"
+        assert idx_git < idx_doc, "git_history should appear before documentation_claim"
 
         assert any(x.get("source_class") == "code_definition" for x in items)
         assert any(x.get("source_class") == "code_relation" for x in items)
+
+    asyncio.run(_run())
+
+
+@pytest.mark.skipif(
+    subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
+    reason="git not installed",
+)
+def test_entity_evidence_synthetic_git_when_emit_capped(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """With persisted git_history emission disabled, entity evidence still surfaces synthetic git from packet."""
+    repo = tmp_path / "mini_git"
+    repo.mkdir()
+    (repo / "app.py").write_text(
+        'def callee():\n'
+        '    """crypto helper"""\n'
+        "    return 1\n"
+        "\n"
+        "def caller():\n"
+        "    return callee()\n",
+        encoding="utf-8",
+    )
+    (repo / "README.md").write_text(
+        "This project implements callee-based signing for all bundles.\n",
+        encoding="utf-8",
+    )
+    _git_commit(repo, "init")
+    (repo / "app.py").write_text(
+        'def callee():\n'
+        '    """crypto helper v2"""\n'
+        "    return 2\n"
+        "\n"
+        "def caller():\n"
+        "    return callee()\n",
+        encoding="utf-8",
+    )
+    _git_commit_all(repo, "revise callee")
+
+    async def _run() -> None:
+        monkeypatch.setattr(
+            "analysis.archaeology.git_history_evidence._MAX_GIT_EVIDENCE_ITEMS",
+            0,
+        )
+        from analysis.evidence import AnalysisEngine
+        from analysis.ingestion.pipeline import run_analysis_pipeline
+        from database import init_database
+        from fastapi.testclient import TestClient
+        from main import app
+
+        await init_database()
+        engine = AnalysisEngine()
+        pr = await run_analysis_pipeline(
+            engine=engine,
+            repo_path=repo,
+            source_for_identity=str(repo.resolve()),
+            persist=True,
+            monitoring=False,
+            monitoring_label=str(repo.resolve()),
+            run_archaeology=True,
+        )
+        assert pr.persisted
+        aid = pr.analysis.analysis_id
+
+        client = TestClient(app)
+        es = client.get(
+            "/api/analysis/entities/search",
+            params={"q": "callee", "analysis_id": aid, "limit": 10},
+        )
+        assert es.status_code == 200
+        entities = es.json().get("entities") or []
+        assert entities
+        eid = entities[0]["entity_id"]
+
+        ev = client.get(
+            f"/api/analysis/entity/{eid}/evidence",
+            params={"analysis_id": aid},
+        )
+        assert ev.status_code == 200
+        items = ev.json().get("items") or []
+        git_rows = [x for x in items if x.get("source_class") == "git_history"]
+        assert git_rows, "expected synthetic git_history when packet exists"
+        assert all(x.get("synthetic") for x in git_rows)
+
+        classes = [x.get("source_class") for x in items]
+        idx_doc = next(i for i, c in enumerate(classes) if c == "documentation_claim")
+        idx_git = next(i for i, c in enumerate(classes) if c == "git_history")
+        assert idx_git < idx_doc
 
     asyncio.run(_run())
