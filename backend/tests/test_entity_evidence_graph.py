@@ -93,6 +93,7 @@ def test_entity_evidence_lists_code_before_documentation(tmp_path: Path) -> None
         assert ev.status_code == 200
         items = ev.json().get("items") or []
         assert items, "expected some linked evidence"
+        assert all("integrity_status" in x for x in items)
 
         classes = [x.get("source_class") for x in items]
         assert "documentation_claim" in classes, "expected README-linked documentation_claim"

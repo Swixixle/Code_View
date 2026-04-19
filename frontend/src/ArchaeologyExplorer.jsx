@@ -35,6 +35,60 @@ function groupEvidenceItems(items) {
   return buckets;
 }
 
+const INTEGRITY_TOOLTIPS = {
+  signed:
+    "Signed: wording in this claim suggests a cryptographic signature. Does not mean verification was run.",
+  hashed_only:
+    "Hashed only: content fingerprint / digest in text — not proof of signer identity.",
+  unsigned:
+    "Unsigned: no hash or signature wording detected in this claim text.",
+};
+
+/** Show integrity line for doc-like rows always; for code/git only when hash or signature cues exist. */
+function evidenceIntegrityVisible(item) {
+  const st = item.integrity_status || "unsigned";
+  const sc = item.source_class || "";
+  if (st !== "unsigned") return true;
+  return (
+    sc === "documentation_claim" ||
+    sc === "keyword_heuristic" ||
+    sc === "other"
+  );
+}
+
+function EvidenceIntegrityLine({ item }) {
+  if (!evidenceIntegrityVisible(item)) return null;
+  const st = item.integrity_status || "unsigned";
+  const label =
+    st === "signed" ? "Signed" : st === "hashed_only" ? "Hashed only" : "Unsigned";
+  const title = INTEGRITY_TOOLTIPS[st] || INTEGRITY_TOOLTIPS.unsigned;
+  const palette =
+    st === "signed"
+      ? "border-slate-600 text-slate-200 bg-slate-950/80"
+      : st === "hashed_only"
+        ? "border-amber-900/60 text-amber-100/90 bg-amber-950/20"
+        : "border-slate-800 text-slate-500 bg-slate-950/40";
+  const flags = [];
+  if (item.content_hash_present) flags.push("hash");
+  if (item.signature_present) flags.push("signature");
+  if (item.public_key_present) flags.push("key");
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2">
+      <span
+        className={`inline-block rounded border px-2 py-0.5 text-[10px] font-medium tracking-wide ${palette}`}
+        title={title}
+      >
+        Integrity: {label}
+      </span>
+      {flags.length ? (
+        <span className="text-[10px] text-slate-600" title="Cues parsed from claim text only">
+          ({flags.join(" · ")} in text)
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function collectUncertaintyNotes({ traceData, interpretData }) {
   const notes = [];
   if (interpretData?.archaeological_gaps?.length) {
@@ -684,6 +738,7 @@ export default function ArchaeologyExplorer() {
                                   key={it.id}
                                   className="rounded border border-slate-800 bg-slate-950/50 p-2 text-xs"
                                 >
+                                  <EvidenceIntegrityLine item={it} />
                                   <div className="text-slate-300">
                                     {it.claim}
                                   </div>

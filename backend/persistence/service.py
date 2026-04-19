@@ -20,6 +20,7 @@ from models.db_models import (
     MechanismRecord,
     RepositoryMonitorRecord,
 )
+from analysis.integrity_signals import infer_integrity_fields
 from models.evidence import AnalysisEvidence, provenance_label_for_source_class, source_class_rank
 from models.orm_converters import orm_to_pydantic, pydantic_to_orm
 
@@ -38,7 +39,7 @@ def _synthetic_claim_for_relation(rel: EntityRelationRecord, src_qn: str, tgt_qn
 
 def _synthetic_code_definition_dict(ent: CodeEntityRecord) -> dict:
     claim = f"Indexed {ent.entity_kind} definition: {ent.qualified_name}"
-    return {
+    d: dict = {
         "id": f"_synthetic_code_definition:{ent.entity_id}",
         "claim": claim,
         "claim_full_length": len(claim),
@@ -64,6 +65,8 @@ def _synthetic_code_definition_dict(ent: CodeEntityRecord) -> dict:
         "support_strength": "strong",
         "synthetic": True,
     }
+    d.update(infer_integrity_fields(claim))
+    return d
 
 
 def _local_repo_root_for_analysis(repository_url: str) -> Path | None:
@@ -111,38 +114,38 @@ def _synthetic_git_history_dicts(
         )
         eid = ent.entity_id
         hid = f"_synthetic_git_history:{eid}:{sha_full or i}:{i}"
-        out.append(
-            {
-                "id": hid,
-                "claim": claim[:500] + ("…" if len(claim) > 500 else ""),
-                "claim_full_length": len(claim),
-                "status": "supported",
-                "confidence": "high",
-                "evidence_type": "observed",
-                "analysis_stage": "entity_git_history_synthetic",
-                "source_class": "git_history",
-                "provenance_label": provenance_label_for_source_class("git_history"),
-                "source_locations": [
-                    {
-                        "file_path": ent.file_path,
-                        "line_start": ent.start_line,
-                        "line_end": ent.end_line,
-                    }
-                ],
-                "linked_entity_ids": [eid],
-                "linked_relation_ids": [],
-                "refinement_signal": "git_observed",
-                "boundary_note": (
-                    "Synthesized from entity_git_history_packet for entity-scoped evidence; "
-                    "same commits as Interpret when the checkout path matches analysis."
-                ),
-                "derived_from_doc": False,
-                "derived_from_code": True,
-                "support_strength": "moderate",
-                "synthetic": True,
-                "history_precision": precision,
-            }
-        )
+        row_d: dict = {
+            "id": hid,
+            "claim": claim[:500] + ("…" if len(claim) > 500 else ""),
+            "claim_full_length": len(claim),
+            "status": "supported",
+            "confidence": "high",
+            "evidence_type": "observed",
+            "analysis_stage": "entity_git_history_synthetic",
+            "source_class": "git_history",
+            "provenance_label": provenance_label_for_source_class("git_history"),
+            "source_locations": [
+                {
+                    "file_path": ent.file_path,
+                    "line_start": ent.start_line,
+                    "line_end": ent.end_line,
+                }
+            ],
+            "linked_entity_ids": [eid],
+            "linked_relation_ids": [],
+            "refinement_signal": "git_observed",
+            "boundary_note": (
+                "Synthesized from entity_git_history_packet for entity-scoped evidence; "
+                "same commits as Interpret when the checkout path matches analysis."
+            ),
+            "derived_from_doc": False,
+            "derived_from_code": True,
+            "support_strength": "moderate",
+            "synthetic": True,
+            "history_precision": precision,
+        }
+        row_d.update(infer_integrity_fields(claim))
+        out.append(row_d)
     return out
 
 
@@ -151,7 +154,7 @@ def _synthetic_code_relation_dict(
 ) -> dict:
     claim = _synthetic_claim_for_relation(rel, src.qualified_name, tgt.qualified_name)
     strength = "strong" if rel.confidence == "high" else "moderate"
-    return {
+    d: dict = {
         "id": f"_synthetic_code_relation:{rel.relation_id}",
         "claim": claim,
         "claim_full_length": len(claim),
@@ -177,6 +180,8 @@ def _synthetic_code_relation_dict(
         "support_strength": strength,
         "synthetic": True,
     }
+    d.update(infer_integrity_fields(claim))
+    return d
 
 
 class EvidencePersistenceService:
@@ -243,10 +248,11 @@ class EvidencePersistenceService:
                 er = result.scalar_one_or_none()
                 if not er:
                     return None
-                return {
+                claim_full = er.claim or ""
+                d = {
                     "id": er.id,
                     "analysis_id": er.analysis_id,
-                    "claim": er.claim,
+                    "claim": claim_full,
                     "status": er.status,
                     "evidence_type": er.evidence_type,
                     "confidence": er.confidence,
@@ -269,6 +275,8 @@ class EvidencePersistenceService:
                     ),
                     "refinement_signal": getattr(er, "refinement_signal", None),
                 }
+                d.update(infer_integrity_fields(claim_full))
+                return d
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to retrieve evidence %s: %s", evidence_id, e)
             return None
@@ -342,10 +350,11 @@ class EvidencePersistenceService:
 
                 def row_to_dict(r: EvidenceRecord) -> dict:
                     sc = getattr(r, "source_class", None) or "keyword_heuristic"
-                    return {
+                    claim_full = r.claim or ""
+                    d = {
                         "id": r.id,
                         "analysis_id": r.analysis_id,
-                        "claim": r.claim,
+                        "claim": claim_full,
                         "status": r.status,
                         "confidence": r.confidence,
                         "evidence_type": r.evidence_type,
@@ -360,6 +369,8 @@ class EvidencePersistenceService:
                         "derived_from_code": bool(getattr(r, "derived_from_code", False)),
                         "provenance_label": provenance_label_for_source_class(sc),
                     }
+                    d.update(infer_integrity_fields(claim_full))
+                    return d
 
                 decorated = [(source_class_rank(getattr(r, "source_class", None)), -r.timestamp.timestamp(), r) for r in rows]
                 decorated.sort(key=lambda t: (t[0], t[1]))
@@ -411,7 +422,7 @@ class EvidencePersistenceService:
             def row_to_dict(r: EvidenceRecord) -> dict:
                 sc = getattr(r, "source_class", None) or "keyword_heuristic"
                 claim = r.claim or ""
-                return {
+                d = {
                     "id": r.id,
                     "claim": claim[:500] + ("…" if len(claim) > 500 else ""),
                     "claim_full_length": len(claim),
@@ -431,6 +442,8 @@ class EvidencePersistenceService:
                     "support_strength": getattr(r, "support_strength", None) or "weak",
                     "synthetic": False,
                 }
+                d.update(infer_integrity_fields(claim))
+                return d
 
             persisted_rel_cov: set[str] = set()
             for r in matched:
