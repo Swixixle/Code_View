@@ -12,8 +12,10 @@ from database import get_session
 from models.db_models import (
     AnalysisRecord,
     ClaimRecord,
+    CodeEntityRecord,
     ContradictionRecord,
     EvidenceRecord,
+    EntityRelationRecord,
     MechanismRecord,
     RepositoryMonitorRecord,
 )
@@ -21,6 +23,79 @@ from models.evidence import AnalysisEvidence, provenance_label_for_source_class,
 from models.orm_converters import orm_to_pydantic, pydantic_to_orm
 
 logger = logging.getLogger(__name__)
+
+
+def _synthetic_claim_for_relation(rel: EntityRelationRecord, src_qn: str, tgt_qn: str) -> str:
+    if rel.relation_type == "calls":
+        return f"Static analysis resolved call edge: {src_qn} -> {tgt_qn}"
+    if rel.relation_type == "imports":
+        return f"Static analysis resolved import edge: {src_qn} imports {tgt_qn}"
+    if rel.relation_type == "contains":
+        return f"Static analysis containment edge: {src_qn} contains {tgt_qn}"
+    return f"Static relation {rel.relation_type}: {src_qn} -> {tgt_qn}"
+
+
+def _synthetic_code_definition_dict(ent: CodeEntityRecord) -> dict:
+    claim = f"Indexed {ent.entity_kind} definition: {ent.qualified_name}"
+    return {
+        "id": f"_synthetic_code_definition:{ent.entity_id}",
+        "claim": claim,
+        "claim_full_length": len(claim),
+        "status": "supported",
+        "confidence": "high",
+        "evidence_type": "observed",
+        "analysis_stage": "archaeology_entity_view",
+        "source_class": "code_definition",
+        "provenance_label": provenance_label_for_source_class("code_definition"),
+        "source_locations": [
+            {
+                "file_path": ent.file_path,
+                "line_start": ent.start_line,
+                "line_end": ent.end_line,
+            }
+        ],
+        "linked_entity_ids": [ent.entity_id],
+        "linked_relation_ids": [],
+        "refinement_signal": "indexed_entity_anchor",
+        "boundary_note": "Synthesized from code_entities row for entity-scoped evidence view.",
+        "derived_from_doc": False,
+        "derived_from_code": True,
+        "support_strength": "strong",
+        "synthetic": True,
+    }
+
+
+def _synthetic_code_relation_dict(
+    rel: EntityRelationRecord, src: CodeEntityRecord, tgt: CodeEntityRecord
+) -> dict:
+    claim = _synthetic_claim_for_relation(rel, src.qualified_name, tgt.qualified_name)
+    strength = "strong" if rel.confidence == "high" else "moderate"
+    return {
+        "id": f"_synthetic_code_relation:{rel.relation_id}",
+        "claim": claim,
+        "claim_full_length": len(claim),
+        "status": "supported",
+        "confidence": "high" if strength == "strong" else "medium",
+        "evidence_type": "observed",
+        "analysis_stage": "relation_graph_evidence_synthetic",
+        "source_class": "code_relation",
+        "provenance_label": provenance_label_for_source_class("code_relation"),
+        "source_locations": [
+            {
+                "file_path": src.file_path,
+                "line_start": src.start_line,
+                "line_end": src.end_line,
+            }
+        ],
+        "linked_entity_ids": [rel.source_entity_id, rel.target_entity_id],
+        "linked_relation_ids": [rel.relation_id],
+        "refinement_signal": "static_relation_edge",
+        "boundary_note": "Synthesized from persisted entity_relations; complements capped relation evidence rows.",
+        "derived_from_doc": False,
+        "derived_from_code": True,
+        "support_strength": strength,
+        "synthetic": True,
+    }
 
 
 class EvidencePersistenceService:
@@ -216,20 +291,25 @@ class EvidencePersistenceService:
     async def get_evidence_for_entity(
         self, analysis_id: str, entity_id: str, *, limit: int = 120
     ) -> list[dict]:
-        """Evidence rows linked via linked_entity_ids or linked_relation_ids (static graph)."""
+        """Persisted evidence linked to entity, plus synthetic code anchors from the static graph."""
         try:
             from analysis.archaeology.store import get_entity_by_id, list_relations_for_entity
 
-            rel_ids: set[str] = set()
             ent = await get_entity_by_id(entity_id)
-            if ent:
-                out, inc = await list_relations_for_entity(
-                    entity_id,
-                    repo_id=ent.repo_id,
-                    commit_sha=ent.commit_sha,
-                    direction="both",
-                )
-                rel_ids = {r.relation_id for r in out + inc}
+            if not ent:
+                return []
+
+            out, inc = await list_relations_for_entity(
+                entity_id,
+                repo_id=ent.repo_id,
+                commit_sha=ent.commit_sha,
+                direction="both",
+            )
+            rel_by_id: dict[str, EntityRelationRecord] = {}
+            for rel in out + inc:
+                rel_by_id[rel.relation_id] = rel
+            all_rels = list(rel_by_id.values())
+            rel_ids_touching = set(rel_by_id.keys())
 
             async with get_session() as session:
                 stmt = select(EvidenceRecord).where(EvidenceRecord.analysis_id == analysis_id)
@@ -240,14 +320,12 @@ class EvidencePersistenceService:
             for r in rows:
                 lids = list(getattr(r, "linked_entity_ids", None) or [])
                 rids = list(getattr(r, "linked_relation_ids", None) or [])
-                hit = entity_id in lids or (bool(rel_ids) and bool(set(rids) & rel_ids))
+                hit = entity_id in lids or (
+                    bool(rel_ids_touching) and bool(set(rids) & rel_ids_touching)
+                )
                 if hit and r.id not in seen:
                     seen.add(r.id)
                     matched.append(r)
-
-            decorated = [(source_class_rank(getattr(r, "source_class", None)), r) for r in matched]
-            decorated.sort(key=lambda t: t[0])
-            out_rows = [t[1] for t in decorated][:limit]
 
             def row_to_dict(r: EvidenceRecord) -> dict:
                 sc = getattr(r, "source_class", None) or "keyword_heuristic"
@@ -270,9 +348,54 @@ class EvidencePersistenceService:
                     "derived_from_doc": bool(getattr(r, "derived_from_doc", False)),
                     "derived_from_code": bool(getattr(r, "derived_from_code", False)),
                     "support_strength": getattr(r, "support_strength", None) or "weak",
+                    "synthetic": False,
                 }
 
-            return [row_to_dict(r) for r in out_rows]
+            persisted_rel_cov: set[str] = set()
+            for r in matched:
+                for rid in getattr(r, "linked_relation_ids", None) or []:
+                    persisted_rel_cov.add(rid)
+
+            has_persisted_code_def = any(
+                getattr(r, "source_class", None) == "code_definition"
+                and entity_id in (getattr(r, "linked_entity_ids", None) or [])
+                for r in matched
+            )
+
+            need_ids: set[str] = {entity_id}
+            for rel in all_rels:
+                if rel.relation_id not in persisted_rel_cov:
+                    need_ids.add(rel.source_entity_id)
+                    need_ids.add(rel.target_entity_id)
+
+            ent_cache: dict[str, CodeEntityRecord | None] = {}
+            for eid in need_ids:
+                ent_cache[eid] = await get_entity_by_id(eid)
+
+            synthetics: list[dict] = []
+
+            if ent.entity_kind in ("function", "method", "class", "route") and not has_persisted_code_def:
+                synthetics.append(_synthetic_code_definition_dict(ent))
+
+            for rel in all_rels:
+                if rel.relation_id in persisted_rel_cov:
+                    continue
+                if rel.relation_type not in ("calls", "imports", "contains"):
+                    continue
+                if rel.relation_type in ("calls", "imports") and rel.confidence not in (
+                    "high",
+                    "medium",
+                ):
+                    continue
+                src = ent_cache.get(rel.source_entity_id)
+                tgt = ent_cache.get(rel.target_entity_id)
+                if not src or not tgt:
+                    continue
+                synthetics.append(_synthetic_code_relation_dict(rel, src, tgt))
+
+            combined = [row_to_dict(r) for r in matched] + synthetics
+            combined.sort(key=lambda d: (source_class_rank(d.get("source_class")), d.get("id", "")))
+            return combined[:limit]
         except Exception as e:  # noqa: BLE001
             logger.error("get_evidence_for_entity failed: %s", e)
             return []
