@@ -240,3 +240,7 @@ Code_View/
 6. **Claims vs Mechanisms** - Systematic gap analysis
 
 This is not another code browser or repo summarizer. This is a forensic dissection tool that shows exactly how software systems actually work versus how they present themselves.
+
+## Archaeology change log
+
+- **2026-04-21** — Fixed static call graph resolution for cross-module calls: `from package.module import name` and relative `from .module` / `from ..module` imports now bind call edges to the defining entity. Re-exports through `package/__init__.py` are followed one step when the direct `package.symbol` qualified name is not an indexed entity. Regression: `backend/tests/archaeology/test_cross_module_trace.py`. Receipt: `docs/receipts/sweeps_relief_sign_bytes_grep.md`. *Follow-up (not this change): persist explicitly unresolved call targets (name + site) when the resolver cannot map a callee, so empty `trace` never means “resolver silently failed” — see `docs/orient_dossier.md` reviewer view.*

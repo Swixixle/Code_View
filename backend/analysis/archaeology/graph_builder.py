@@ -36,19 +36,111 @@ def _module_qual_from_rel(rel: str) -> str:
     return p.replace("/", ".")
 
 
-def _module_level_import_aliases(tree: ast.AST, qns: set[str]) -> dict[str, str]:
+def _package_name_for_relative_imports(module_qn: str, rel_path: str) -> list[str]:
+    """Package path as segments for resolving PEP 328 relative imports."""
+    rel = rel_path.replace("\\", "/")
+    parts = module_qn.split(".")
+    if rel.endswith("__init__.py"):
+        return parts
+    if len(parts) <= 1:
+        return []
+    return parts[:-1]
+
+
+def _absolute_module_for_importfrom(module_qn: str, rel_path: str, node: ast.ImportFrom) -> str | None:
+    """Resolve ImportFrom to an absolute dotted module name (before ``.name`` suffix for symbols)."""
+    level = getattr(node, "level", 0) or 0
+    mod = node.module or ""
+    pkg = _package_name_for_relative_imports(module_qn, rel_path)
+    if level == 0:
+        return mod if mod else None
+    if level > len(pkg):
+        return None
+    anchor = pkg[: len(pkg) - level + 1]
+    rest = mod.split(".") if mod else []
+    return ".".join(anchor + rest)
+
+
+def _resolve_via_package_init(
+    repo_root: Path,
+    abs_package_module: str,
+    symbol: str,
+    qns: set[str],
+    *,
+    _seen: set[tuple[str, str]] | None = None,
+) -> str | None:
+    """Follow ``package.__init__`` re-exports so ``from pkg.sub import sym`` maps to defining qual."""
+    if _seen is None:
+        _seen = set()
+    key = (abs_package_module, symbol)
+    if key in _seen:
+        return None
+    _seen.add(key)
+    init_rel = abs_package_module.replace(".", "/") + "/__init__.py"
+    p = repo_root / init_rel
+    if not p.is_file():
+        return None
+    tree = _read_ast(p)
+    if not tree:
+        return None
+    try:
+        rp = p.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return None
+    sub_aliases = _module_level_import_aliases(
+        tree,
+        qns,
+        module_qn=abs_package_module,
+        rel_path=rp,
+        repo_root=repo_root,
+        _reexport_seen=_seen,
+    )
+    return sub_aliases.get(symbol)
+
+
+def _module_level_import_aliases(
+    tree: ast.AST,
+    qns: set[str],
+    *,
+    module_qn: str,
+    rel_path: str,
+    repo_root: Path | None = None,
+    _reexport_seen: set[tuple[str, str]] | None = None,
+) -> dict[str, str]:
     """Map local name -> imported entity qualified name (module-level imports only)."""
     aliases: dict[str, str] = {}
     for n in getattr(tree, "body", []):
         if isinstance(n, ast.ImportFrom):
-            base = n.module or ""
+            abs_mod = _absolute_module_for_importfrom(module_qn, rel_path, n)
             for alias in n.names:
-                if alias.name == "*" or not base:
+                if alias.name == "*":
                     continue
                 local = alias.asname or alias.name
-                cand = f"{base}.{alias.name}"
+                level = getattr(n, "level", 0) or 0
+                if abs_mod is None and level > 0 and not n.module:
+                    pkg = _package_name_for_relative_imports(module_qn, rel_path)
+                    if level > len(pkg):
+                        continue
+                    anchor = pkg[: len(pkg) - level + 1]
+                    cand = ".".join(anchor + [alias.name])
+                    if cand in qns:
+                        aliases[local] = cand
+                    continue
+                if not abs_mod:
+                    continue
+                cand = f"{abs_mod}.{alias.name}"
                 if cand in qns:
                     aliases[local] = cand
+                elif repo_root is not None:
+                    resolved = _resolve_via_package_init(
+                        repo_root,
+                        abs_mod,
+                        alias.name,
+                        qns,
+                        _seen=_reexport_seen or set(),
+                    )
+                    if resolved:
+                        aliases[local] = resolved
         elif isinstance(n, ast.Import):
             for alias in n.names:
                 pub = alias.name
@@ -293,12 +385,15 @@ def collect_relations(
                 )
             )
 
+    reexport_seen: set[tuple[str, str]] = set()
+    root = repo_root.resolve()
+
     for path in iter_python_files(repo_root):
         tree = _read_ast(path)
         if not tree:
             continue
         try:
-            rel = path.resolve().relative_to(repo_root.resolve()).as_posix()
+            rel = path.resolve().relative_to(root).as_posix()
         except ValueError:
             continue
         module_qn = _module_qual_from_rel(rel)
@@ -332,7 +427,14 @@ def collect_relations(
 
         _ScopedImportVisitor(module_qn, qns, drafts).visit(tree)
 
-        import_aliases = _module_level_import_aliases(tree, qns)
+        import_aliases = _module_level_import_aliases(
+            tree,
+            qns,
+            module_qn=module_qn,
+            rel_path=rel,
+            repo_root=root,
+            _reexport_seen=reexport_seen,
+        )
         calls_raw: list[tuple[str, str | None, str]] = []
         cv = _CallVisitor(
             module_qn=module_qn,
